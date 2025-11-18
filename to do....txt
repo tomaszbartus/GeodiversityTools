@@ -1,0 +1,9 @@
+przygotować szablon repozytorium GitHub dla Twojego narzędzia,
+
+zaproponować strukturę dokumentacji,
+
+pomóc zamienić już napisane skrypty w kompletne narzędzia ArcGIS,
+
+dodać obsługę błędów, logowanie, walidacje parametrów,
+
+stworzyć ikony i metadane do Toolboxa.
