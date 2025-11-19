@@ -13,10 +13,14 @@ The tools are implemented as:
 
 The workflows support analyses such as:
 
-- circular standard deviation (SDc, R_SDc)
-- local morphodiversity indicators
-- terrain variability statistics
-- raster-based landscape metrics
+- vector-based landscape metrics:
+-- diversity of polygonal features based on the number of elements (A_Ne) and number of categories (A_Nc)
+-- diversity of polygonal features based on Shannon-Weaver diversity index (A_SHDI)
+-- diversity of linear features based on the total length of features (L_L)
+-- diversity of point features based on the number of elements (P_Ne) and number of categories (P_Nc)
+- raster-based landscape metrics:
+-- diversity of continuous regionalized variables based on standard deviation (R_SD)
+-- diversity of continuous regionalized variables based on circular standard deviation (SDc)
 
 These tools are intended for landscape analysis, geodiversity assessment, environmental planning, and scientific research.
 
