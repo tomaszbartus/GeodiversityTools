@@ -88,6 +88,15 @@ Bartuś, T. (2025). Geodiversity Tools for ArcGIS Pro (version 1.0).
 
 ---
 
+## Bibliography 
+The following bibliographic items describe the scientific foundations of geodiversity assessment and apply the indicators discussed:
+
+- Bartuś, T., & Mastej, W. (2023). Morphodiversity as a Tool in Geoconservation: A Case Study in a Mountain Area (Pieniny Mts, Poland). Sustainability, 15(14), 11357. https://doi.org/10.3390/SU151411357
+- Mastej, W., & Bartuś, T. (2024). Supervised classification of morphodiversity using artificial neural networks on the example of the Pieniny Mts (Poland). CATENA, 242, 108086. https://doi.org/10.1016/j.catena.2024.108086
+- Bartuś, T., & Mastej, W. (2025). HOW to use continuous variables in geodiversity assessments – RASTER Continuous Morphodiversity Model. Environmental Modelling and Software, 193, 106597. https://doi.org/10.1016/j.envsoft.2025.106597.
+---
+
+
 ## License
 This project is distributed under the MIT License.  
 See `LICENSE` for details.
