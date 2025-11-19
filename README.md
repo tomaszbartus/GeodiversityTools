@@ -20,7 +20,7 @@ The workflows support analyses such as:
 
 These tools are intended for landscape analysis, geodiversity assessment, environmental planning, and scientific research.
 
----
+```
 
 ## Repository Structure
 
@@ -48,7 +48,7 @@ GeodiversityTools/
 │
 └── README.md
 
----
+```
 
 ## Features
 - Easy-to-use ArcGIS Pro interface (GUI)
