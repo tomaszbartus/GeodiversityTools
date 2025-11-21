@@ -50,6 +50,10 @@ GeodiversityTools/
 ├── TestData/
 │
 ├── Toolbox/
+│ ├── Images/
+│ │ ├── A_Nc.png
+│ │ ├── A_Ne.png
+│ │ └── ...
 │ └── GeodiversityTools.atbx
 │
 └── README.md
