@@ -35,6 +35,7 @@ GeodiversityTools/
 ├── Docs/
 │ ├── installation.md
 │ ├── usage_examples.md
+│ ├── licence.md
 │ └── ...
 │
 ├── Scripts/
