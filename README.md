@@ -65,6 +65,7 @@ GeodiversityTools/
 - Easy-to-use ArcGIS Pro interface (GUI)
 - Script tools fully compatible with ModelBuilder
 - Clean Python implementation using `arcpy` and Spatial Analyst
+- Support for analyses of regionalized discrete and continuous variables
 - Support for grid-based analysis and raster–polygon overlays
 - Integrated output standardization of geodiversity metrics, ensuring their comparability for cross-grid and cross-region analyses
 - Designed for reproducible scientific workflows
@@ -96,7 +97,7 @@ Examples of running the tools in ArcGIS Pro and Python can be found in:
 ## Citation
 
 If you use these tools in research, please cite appropriately:
-Bartuś, T. (2025). Geodiversity Tools for ArcGIS Pro (version 1.0).
+Bartuś, T. (2025). Geodiversity Tools for ArcGIS Pro (version 1.0). https://github.com/tomaszbartus/GeodiversityTools.
 
 ---
 
