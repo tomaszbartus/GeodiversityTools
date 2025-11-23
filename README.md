@@ -115,7 +115,7 @@ The following bibliographic items describe the scientific foundations of geodive
 ## License
 
 This project is distributed under the MIT License.  
-See `LICENSE` for details.
+See **[Docs/licence.md](Docs/licence.md)** for details.
 
 ---
 
