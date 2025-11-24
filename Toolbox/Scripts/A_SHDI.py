@@ -120,7 +120,7 @@ try:
     # 10. RENAME FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_SumElement",f"{prefix}_SHDI",f"{landscape_attr}_SHDI")
-    arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",f"{prefix}_SHDI_MM",f"Std_{landscape_attr}_SHDI")
+    arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",f"{prefix}_SHDIMM",f"Std_{landscape_attr}_SHDI")
 
     # ----------------------------------------------------------------------
     # 11. CLEANUP
