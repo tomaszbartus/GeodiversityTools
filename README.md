@@ -38,12 +38,6 @@ GeodiversityTools/
 │ ├── licence.md
 │ └── ...
 │
-├── Scripts/
-│ ├── A_Nc.py
-│ ├── A_Ne.py
-│ ├── A_SHDI.py
-│ └── ...
-│
 ├── Symbology/
 │ ├── Colors.md
 │ ├── GeodiversityTools.stylex
@@ -54,6 +48,12 @@ GeodiversityTools/
 │ ├── Images/
 │ │ ├── A_Nc.png
 │ │ ├── A_Ne.png
+│ │ ├── A_SHDI.png
+│ │ └── ...
+│ ├── Scripts/
+│ │ ├── A_Nc.py
+│ │ ├── A_Ne.py
+│ │ ├── A_SHDI.py
 │ │ └── ...
 │ └── GeodiversityTools.atbx
 │
