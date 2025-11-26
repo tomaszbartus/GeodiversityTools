@@ -51,10 +51,11 @@ try:
 
     # ----------------------------------------------------------------------
     # 2. Spatial Join: count dissolved polygons inside grid cells
+    # UWAGA!  field_mapping
     # ----------------------------------------------------------------------
     arcpy.analysis.SpatialJoin(
         grid_fl, dissolved_fl, nc_fl,
-        "JOIN_ONE_TO_ONE", "KEEP_ALL", "INTERSECT"
+        "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT"
     )
 
     # ----------------------------------------------------------------------
