@@ -89,7 +89,7 @@ try:
     # Sprawdź czy pole zostało utworzone przez StandardizeField
     std_field_name = f"{prefix}_P_Ne_MIN_MAX"
     if std_field_name in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.AlterField(grid_fl, std_field_name,f"{prefix}_P_NeMM",f"Std_{landscape_fl}_A_Ne")
+        arcpy.management.AlterField(grid_fl, std_field_name,f"{prefix}_Ne_MM",f"Std_{landscape_fl}_A_Ne")
 
     # ----------------------------------------------------------------------
     # 5. CLEANUP
