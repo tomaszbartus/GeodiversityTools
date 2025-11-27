@@ -1,7 +1,7 @@
 # Geodiversity Tool P_Hu
-# Calculates the number of geosites (point features) within each polygon of the analytical grid
+# Calculates the unit entropy (Hu) point feature layer within each polygon of the analytical grid
 # Author: bartus@agh.edu.pl
-# 2025-11-26
+# 2025-11-27
 
 import arcpy
 import math
@@ -26,7 +26,7 @@ try:
     # ----------------------------------------------------------------------
     # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
     # ----------------------------------------------------------------------
-    field_raw = f"{prefix}_H"
+    field_raw = f"{prefix}_Hu"
 
     existing_fields = [f.name for f in arcpy.ListFields(grid_fl)]
 
@@ -38,67 +38,68 @@ try:
         raise Exception("Existing output field detected. Aborting tool execution.")
 
     # ----------------------------------------------------------------------
-    #
+    # INTERMEDIATE DATA
     # ----------------------------------------------------------------------
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
     tabulate_intersection_table = f"{workspace_gdb}\\{prefix}_Nc_Tbl"
-    H_table = f"{workspace_gdb}\\{prefix}_H_Tbl"
+    Hu_table = f"{workspace_gdb}\\{prefix}_Hu_Tbl"
 
     # ----------------------------------------------------------------------
-    # 2. SPATIAL JOIN
+    # 1. SPATIAL JOIN
     # ----------------------------------------------------------------------
     arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE","KEEP_ALL", "", "INTERSECT")
 
     arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
 
     # ----------------------------------------------------------------------
-    # 3. TABULATE INTERSECTION
+    # 2. TABULATE INTERSECTION
     # Funkcja tworzy tabelę złożoną z kolumn: 1) ID komórki grida, 2) wartość kategorii, 3) liczby punktów tej kategorii (Nc)
     # ----------------------------------------------------------------------
     arcpy.analysis.TabulateIntersection(grid_fl, grid_id_field, landscape_fl, tabulate_intersection_table, landscape_attr)
 
     # ----------------------------------------------------------------------
-    # 4. q_i = Nc / Ne
+    # 3. q_i = Nc / Ne
     # ----------------------------------------------------------------------
     # Add new attribute Ne to the tabulate_intersection_table
-    arcpy.management.JoinField(tabulate_intersection_table, grid_id_field, intersect_fc, grid_id_field,["Ne"])
+    arcpy.management.JoinField(tabulate_intersection_table, f"{grid_id_field}_1", intersect_fc, grid_id_field,["Ne"])
 
     # Add new attribute q_i to the tabulate_intersection_table
-    arcpy.management.AddField(tabulate_intersection_table, "qi", "DOUBLE")
+    arcpy.management.AddField(tabulate_intersection_table, "q_i", "DOUBLE")
 
     # Calculate q_i
-    arcpy.management.CalculateField(tabulate_intersection_table,"qi","(!POINTS! / !Ne!) if !Ne! > 0 else 0","PYTHON3")
+    arcpy.management.CalculateField(tabulate_intersection_table,"q_i","(!PNT_COUNT! / !Ne!) if !Ne! > 0 else 0","PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 5. Calculate Unit Entropy (q_i * ln(q_i))
+    # 4. Calculate Unit Entropy H_i = -(q_i * ln(q_i))
     # ----------------------------------------------------------------------
     arcpy.management.AddField(tabulate_intersection_table, "H_i", "DOUBLE")
-    arcpy.management.CalculateField(tabulate_intersection_table,"H_i","-(!qi! * math.log(!qi!)) if !qi! > 0 else 0","PYTHON3")
+    arcpy.management.CalculateField(tabulate_intersection_table,"H_i","-(!q_i! * math.log(!q_i!)) if !q_i! > 0 else 0","PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 6. SUMMARIZE ALL q_i
+    # 5. SUMMARIZE ALL H_i -- use the grid ID field name present in the tabulate table (usually grid_id + "_1")
     # ----------------------------------------------------------------------
-    arcpy.analysis.Statistics(tabulate_intersection_table, H_table,["H_i", "SUM"], grid_id_field)
+    arcpy.analysis.Statistics(tabulate_intersection_table, Hu_table,[["H_i", "SUM"]], f"{grid_id_field}_1")
 
     # ----------------------------------------------------------------------
-    # 7. Join back to grid layer
+    # 6. Join back to grid layer
     # ----------------------------------------------------------------------
-    arcpy.management.JoinField(grid_fl, grid_id_field, H_table, grid_id_field,["SUM_H_i"])
+    arcpy.management.JoinField(grid_fl, grid_id_field, Hu_table, f"{grid_id_field}_1",["SUM_H_i"])
 
     # ----------------------------------------------------------------------
-    # 8. Rename joined fields
+    # 7. Rename joined fields
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl,"SUM_H_i", f"{prefix}_Hu", landscape_attr + "_Hu")
+    arcpy.management.AlterField(grid_fl,"SUM_H_i", f"{prefix}_Hu", f"{prefix}_Hu")
     arcpy.AddMessage(f"Unit entropy ({prefix}_H) calculated successfully.")
 
     # ----------------------------------------------------------------------
-    # 9. CLEANUP
+    # 8. CLEANUP
     # ----------------------------------------------------------------------
-    arcpy.management.Delete(intersect_fc)
-    arcpy.management.Delete(tabulate_intersection_table)
-    arcpy.management.Delete(H_table)
-    arcpy.management.Compact(workspace_gdb)
+    for fc in (intersect_fc, tabulate_intersection_table, Hu_table):
+        if arcpy.Exists(fc):
+            arcpy.management.Delete(fc)
 
+    arcpy.ClearWorkspaceCache_management()
+    arcpy.management.Compact(workspace_gdb)
     arcpy.AddMessage("Ne calculation completed successfully.")
 
 except arcpy.ExecuteError:
