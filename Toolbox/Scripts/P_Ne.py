@@ -1,7 +1,7 @@
 # Geodiversity Tool P_Ne
 # Calculates the number of geosites (point features) within each polygon of the analytical grid
 # Author: bartus@agh.edu.pl
-# 2025-11-26
+# 2025-11-27
 
 import arcpy
 
@@ -12,93 +12,70 @@ try:
     # ----------------------------------------------------------------------
     # PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    landscape_fl = arcpy.GetParameterAsText(0)  # point feature layer
-    grid_fl = arcpy.GetParameterAsText(1)       # analytical grid FL
-    grid_id_field = arcpy.GetParameterAsText(2) # grid OBJECTID-like field
+    landscape_fl = arcpy.GetParameterAsText(0)   # point feature layer
+    landscape_attr = arcpy.GetParameterAsText(1) # category field (string only, not used in prefix)
+    grid_fl = arcpy.GetParameterAsText(2)        # analytical grid FL
+    grid_id_field = arcpy.GetParameterAsText(3)  # grid ID field
 
-    # Workspace and prefix
-    workspace_gdb = arcpy.Describe(grid_fl).path
+    workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS IN ANALYTICAL GRID ALREADY EXIST IN GRID TABLE
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST
     # ----------------------------------------------------------------------
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
-    field_raw = (prefix + "_P_Ne").upper()
-    field_std = ("Std_" + prefix + "_P_Ne").upper()
-    field_mm = (prefix + "_P_NeMM").upper()
+    field_raw = f"{prefix}_Ne".upper()
+    field_std = f"{prefix}_Ne_MM".upper()
 
-    if field_raw in existing_fields or field_std in existing_fields or field_mm in existing_fields:
+    if field_raw in existing_fields or field_std in existing_fields:
         arcpy.AddError(
-            f"Fields '{prefix}_P_Ne', 'Std_{prefix}_P_Ne' and/or '{prefix}_P_NeMM' already exist "
+            f"Fields '{field_raw}' and/or '{field_std}' already exist "
             f"in the analytical grid attribute table.\n"
             f"Please remove these fields before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY LAYER WITH COUNT FIELD
+    # INTERMEDIATE DATA
     # ----------------------------------------------------------------------
-    temp_landscape = arcpy.CreateUniqueName("temp_landscape", workspace_gdb)
-    arcpy.management.CopyFeatures(landscape_fl, temp_landscape)
-    arcpy.management.AddField(temp_landscape, "Count", "SHORT")
-
-    with arcpy.da.UpdateCursor(temp_landscape, ["Count"]) as cursor:
-        for row in cursor:
-            row[0] = 1
-            cursor.updateRow(row)
+    intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
 
     # ----------------------------------------------------------------------
-    # 2. SPATIAL JOIN WITH FIELD MAPPINGS
+    # 1. SPATIAL JOIN
     # ----------------------------------------------------------------------
-    temp_output = arcpy.CreateUniqueName("temp_spatial_join", workspace_gdb)
+    arcpy.analysis.SpatialJoin(
+        grid_fl, landscape_fl, intersect_fc,
+        "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT")
 
-    # Configure FieldMappings
-    field_mappings = arcpy.FieldMappings()
-    field_mappings.addTable(grid_fl)
-
-    # Create FieldMap for Count field
-    fm_count = arcpy.FieldMap()
-    fm_count.addInputField(temp_landscape, "Count")
-    fm_count.mergeRule = "Sum"
-
-    # Configure output field
-    out_field = fm_count.outputField
-    out_field.name = f"{prefix}_P_Ne"
-    out_field.aliasName = f"{prefix}_P_Ne"
-    out_field.type = "LONG"
-    fm_count.outputField = out_field
-
-    field_mappings.addFieldMap(fm_count)
-
-    # Execute Spatial Join
-    arcpy.analysis.SpatialJoin(grid_fl, temp_landscape, temp_output,"JOIN_ONE_TO_ONE","KEEP_ALL", field_mappings,"INTERSECT")
-
-    # Transfer result field to grid
-    arcpy.management.JoinField(grid_fl, grid_id_field, temp_output, "TARGET_FID", f"{prefix}_P_Ne")
+    arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
 
     # ----------------------------------------------------------------------
-    # 3. Standardization (Min-Max)
+    # 2. MIN-MAX STANDARDIZATION
     # ----------------------------------------------------------------------
-    arcpy.management.StandardizeField(grid_fl,f"{prefix}_P_Ne","MIN-MAX",0,1)
+    arcpy.management.StandardizeField(intersect_fc, "Ne", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 4. Rename table attributes
+    # 3. JOIN BACK TO GRID
     # ----------------------------------------------------------------------
-    # Sprawdź czy pole zostało utworzone przez StandardizeField
-    std_field_name = f"{prefix}_P_Ne_MIN_MAX"
-    if std_field_name in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.AlterField(grid_fl, std_field_name,f"{prefix}_Ne_MM",f"Std_{landscape_fl}_A_Ne")
+    arcpy.management.JoinField(grid_fl, grid_id_field, intersect_fc, grid_id_field,["Ne", "Ne_MIN_MAX"])
+
+    # ----------------------------------------------------------------------
+    # 4. RENAME JOINED FIELDS
+    # ----------------------------------------------------------------------
+    arcpy.management.AlterField(grid_fl, "Ne", f"{prefix}_Ne", f"{prefix}_Ne")
+    arcpy.management.AlterField(grid_fl, "Ne_MIN_MAX", f"{prefix}_Ne_MM", f"Std_{prefix}_Ne")
 
     # ----------------------------------------------------------------------
     # 5. CLEANUP
     # ----------------------------------------------------------------------
-    arcpy.management.Delete(temp_output)
-    arcpy.management.Delete(temp_landscape)
+    if arcpy.Exists(intersect_fc):
+        arcpy.management.Delete(intersect_fc)
+
+    arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("Ne calculation completed successfully.")
+    arcpy.AddMessage("Geosites Ne calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")
@@ -107,3 +84,6 @@ except arcpy.ExecuteError:
 except Exception as e:
     arcpy.AddError("Python error occurred:")
     arcpy.AddError(str(e))
+
+finally:
+    arcpy.ClearWorkspaceCache_management()
