@@ -1,5 +1,6 @@
-# Geodiversity Tool A_Ne
-# Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
+# Geodiversity Tool L_L
+# Calculates the total length of line features of a selected landscape feature
+# within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
 # 2025-11-29
 
@@ -10,33 +11,32 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL (Feature Layers only)
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    landscape_fl = arcpy.GetParameterAsText(0)             # polygon FL
-    landscape_attr = arcpy.GetParameterAsText(1)           # category field
-    grid_fl = arcpy.GetParameterAsText(2)                  # analytical grid FL
-    grid_id_field = arcpy.GetParameterAsText(3)            # grid OBJECTID-like field
+    landscape_fl = arcpy.GetParameterAsText(0)      # Line feature layer
+    #landscape_attr = arcpy.GetParameterAsText(1)    # Category field
+    grid_fl = arcpy.GetParameterAsText(1)           # Analytical grid layer
+    grid_id_field = arcpy.GetParameterAsText(2)     # Grid ID (usually OBJECTID)
 
     # ----------------------------------------------------------------------
-    # Intermediate datasets
+    # INTERMEDIATE FEATURE CLASSES
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
-    prefix = landscape_attr[:3].upper()
+    prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
 
-    intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
-    mts_fc       = f"{workspace_gdb}\\{prefix}_Ne_MtS"
-    ne_table     = f"{workspace_gdb}\\{prefix}_Ne_Tab"
+    intersect_fc = f"{workspace_gdb}\\{prefix}_Int"
+    dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_Ne"
-    output_index_alias = f"{prefix}_Ne"
-    std_output_index_name = f"{prefix}_Ne_MM"
-    std_output_index_alias = f"Std_{prefix}_Ne"
+    output_index_name = f"{prefix}_L"
+    output_index_alias = f"{prefix}_L"
+    std_output_index_name = f"{prefix}_L_MM"
+    std_output_index_alias = f"Std_{prefix}_L"
 
     # ----------------------------------------------------------------------
-    # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
@@ -47,7 +47,7 @@ try:
         arcpy.AddError(
             f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
             f"in the analytical grid attribute table.\n"
-            f"Please remove these fields before re-running the tool."
+            f"Remove these fields before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
 
@@ -55,50 +55,35 @@ try:
     # 1. Intersect landscape FL with grid FL (creates intersect_fc containing FID_<grid> for grouping)
     # ----------------------------------------------------------------------
     #arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL", "", "INPUT")
-    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ONLY_FID")
+    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL")
 
     # ----------------------------------------------------------------------
-    # 2. Multipart → singlepart (create mts_fc - ..._Ne_MtS FC)
+    # 2. Dissolve lines
     # ----------------------------------------------------------------------
-    arcpy.management.MultipartToSinglepart(intersect_fc, mts_fc)
+    # arcpy.management.Dissolve(in_features, out_feature_class, {dissolve_field}, {statistics_fields}, {multi_part}, {unsplit_lines}, {concatenation_separator})
+    arcpy.management.Dissolve(intersect_fc, dissolved_fc, grid_id_field)
 
     # ----------------------------------------------------------------------
-    # 3. Add Count field and set = 1
+    # 3. Min-Max standardization
     # ----------------------------------------------------------------------
-    arcpy.management.AddField(mts_fc, "Count", "SHORT")
-
-    with arcpy.da.UpdateCursor(mts_fc, ["Count"]) as cursor:
-        for row in cursor:
-            row[0] = 1
-            cursor.updateRow(row)
+    arcpy.management.StandardizeField(dissolved_fc, "Shape_Length", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 4. Statistics: count elements per grid cell
+    # 4. Join back to grid layer
     # ----------------------------------------------------------------------
-    case_field = f"FID_{arcpy.Describe(grid_fl).name}"
-    #case_field = "FID_" + grid_fl
-    arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], case_field)
+    grid_fid_field = f"FID_{arcpy.Describe(grid_fl).baseName}"
+    arcpy.management.JoinField(grid_fl, grid_id_field, dissolved_fc, grid_fid_field,["Shape_Length", "Shape_Length_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 5. Min-Max standardization
+    # 5. Rename joined fields
     # ----------------------------------------------------------------------
-    arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
-
-    # ----------------------------------------------------------------------
-    # 6. Join back to grid layer
-    # ----------------------------------------------------------------------
-    arcpy.management.JoinField(grid_fl, grid_id_field, ne_table, case_field,["SUM_Count", "SUM_Count_MIN_MAX"])
-
-    # ----------------------------------------------------------------------
-    # 7. Rename joined fields
-    # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
+    arcpy.management.AlterField(grid_fl, "Shape_Length", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "Shape_Length_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
     # 8. Cleanup
     # ----------------------------------------------------------------------
-    for fc in (intersect_fc, mts_fc, ne_table):
+    for fc in (intersect_fc, dissolved_fc):
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
 
@@ -108,11 +93,11 @@ try:
     arcpy.AddMessage("Ne calculation completed successfully.")
 
 except arcpy.ExecuteError:
-    arcpy.AddError("Geoprocessing error occurred:")
+    arcpy.AddError("A geoprocessing error occurred:")
     arcpy.AddError(arcpy.GetMessages(2))
 
 except Exception as e:
-    arcpy.AddError("Python error occurred:")
+    arcpy.AddError("A Python error occurred:")
     arcpy.AddError(str(e))
 
 finally:
