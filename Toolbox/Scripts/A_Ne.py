@@ -1,6 +1,6 @@
 # Geodiversity Tool A_Ne
 # Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
-# Author: Tomasz Bartuś (bartus@agh.edu.pl)
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
 # 2025-11-29
 
 import arcpy

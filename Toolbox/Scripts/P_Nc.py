@@ -1,8 +1,8 @@
 # Geodiversity Tool P_Nc
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
-# Author: bartus@agh.edu.pl
-# 2025-11-23
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+# 2025-11-29
 
 import arcpy
 

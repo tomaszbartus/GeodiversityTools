@@ -1,8 +1,8 @@
 # Geodiversity Tool R_SDcm
 # Calculates the Modified Circular Standard Deviation (SDc) for a selected landscape feature (raster) in each polygon of an analytical grid.
 # The script sets the circular standard deviation value to 0 in those cells of the analytical grid where the mean slope is lower than the slope threshold specified by the user
-# Author: Tomasz Bartuś (bartus@agh.edu.pl)
-# Date: 2025-11-16 (finalized)
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+# Date: 2025-11-29
 
 import arcpy
 

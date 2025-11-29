@@ -1,8 +1,8 @@
 # Geodiversity Tool R_SDc
 # Calculates the Circular Standard Deviation (SDc) for a selected landscape feature (raster)
 # in each polygon of an analytical grid.
-# Author: Tomasz Bartuś (bartus@agh.edu.pl)
-# Date: 2025-11-16 (finalized)
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+# Date: 2025-11-29
 
 import arcpy
 import math
