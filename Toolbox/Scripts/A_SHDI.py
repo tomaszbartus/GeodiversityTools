@@ -1,8 +1,8 @@
 # Geodiversity Tool A_SHDI
 # Calculates the Shannon–Weaver diversity index (SHDI) for a selected landscape feature (polygon feature class)
 # in each polygon of an analytical grid.
-# Author: Tomasz Bartuś (bartus@agh.edu.pl)
-# Date: 2025-11-21
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+# Date: 2025-11-29
 
 import arcpy
 import math

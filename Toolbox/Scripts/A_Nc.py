@@ -1,7 +1,7 @@
 # Geodiversity Tool A_Nc
 # Calculates the number of polygon feature categories of a selected landscape feature
 # within each polygon of an analytical grid.
-# Author: bartus@agh.edu.pl
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
 # 2025-11-29
 
 import arcpy

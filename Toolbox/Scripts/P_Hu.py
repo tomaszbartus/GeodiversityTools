@@ -1,7 +1,7 @@
 # Geodiversity Tool P_Hu
 # Calculates the unit entropy (Hu) point feature layer within each polygon of the analytical grid
-# Author: bartus@agh.edu.pl
-# 2025-11-27
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+# 2025-11-29
 
 import arcpy
 import math

@@ -1,7 +1,7 @@
 # Geodiversity Tool P_Ne
 # Calculates the number of geosites (point features)
 # within each polygon of the analytical grid.
-# Author: bartus@agh.edu.pl
+# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
 # 2025-11-29
 
 import arcpy
