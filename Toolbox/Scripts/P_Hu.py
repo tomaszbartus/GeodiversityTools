@@ -18,31 +18,36 @@ try:
     grid_fl = arcpy.GetParameterAsText(2)                # grid layer
     grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
 
-    # Workspace GDB
-    workspace_gdb = arcpy.Describe(landscape_fl).path
-
-    prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
-
-    # ----------------------------------------------------------------------
-    # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
-    # ----------------------------------------------------------------------
-    field_raw = f"{prefix}_Hu"
-
-    existing_fields = [f.name for f in arcpy.ListFields(grid_fl)]
-
-    if field_raw in existing_fields:
-        arcpy.AddError(
-            f"Fields '{field_raw}' already exist in the analytical grid.\n"
-            f"Remove these fields before re-running the P_Hu tool."
-        )
-        raise Exception("Existing output field detected. Aborting tool execution.")
-
     # ----------------------------------------------------------------------
     # INTERMEDIATE DATA
     # ----------------------------------------------------------------------
+    workspace_gdb = arcpy.Describe(landscape_fl).path
+    prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
+
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
     tabulate_intersection_table = f"{workspace_gdb}\\{prefix}_Nc_Tbl"
     Hu_table = f"{workspace_gdb}\\{prefix}_Hu_Tbl"
+
+    # ----------------------------------------------------------------------
+    # OUTPUT FIELD NAMES
+    # ----------------------------------------------------------------------
+    output_index_name = f"{prefix}_Hu"
+    output_index_alias = f"{prefix}_Hu"
+
+    # ----------------------------------------------------------------------
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
+    # ----------------------------------------------------------------------
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    field_raw = output_index_name.upper()
+
+    if field_raw in existing_fields:
+        arcpy.AddError(
+            f"Fields '{output_index_name.upper()}' already exist "
+            f"in the analytical grid attribute table.\n"
+            f"Remove these field before re-running the tool."
+        )
+        raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
     # 1. SPATIAL JOIN
@@ -88,8 +93,8 @@ try:
     # ----------------------------------------------------------------------
     # 7. Rename joined fields
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl,"SUM_H_i", f"{prefix}_Hu", f"{prefix}_Hu")
-    arcpy.AddMessage(f"Unit entropy ({prefix}_H) calculated successfully.")
+    arcpy.management.AlterField(grid_fl,"SUM_H_i", output_index_name, output_index_alias)
+    arcpy.AddMessage(f"Unit entropy ({output_index_name}) calculated successfully.")
 
     # ----------------------------------------------------------------------
     # 8. CLEANUP
@@ -100,7 +105,7 @@ try:
 
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
-    arcpy.AddMessage("Ne calculation completed successfully.")
+    arcpy.AddMessage("Hu calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")
