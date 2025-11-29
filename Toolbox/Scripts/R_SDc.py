@@ -7,6 +7,7 @@
 import arcpy
 import math
 from arcpy.sa import *
+import textwrap  # removing unwanted indentations
 
 # Allow to overwrite
 arcpy.env.overwriteOutput = True
@@ -22,12 +23,10 @@ try:
     grid_fl = arcpy.GetParameterAsText(1)
     grid_id_field = arcpy.GetParameterAsText(2)
 
-    # Workspace (use geodatabase where the grid lives)
+    # ----------------------------------------------------------------------
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATA
+    # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
-
-    # ----------------------------------------------------------------------
-    # Prepare names and intermediate outputs
-    # ----------------------------------------------------------------------
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
 
@@ -41,22 +40,32 @@ try:
     zonal_stat_table = f"{workspace_gdb}\\{prefix}_ZONAL_STAT"
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS IN ANALYTICAL GRID ALREADY EXIST
+    # OUTPUT FIELD NAMES
+    # ----------------------------------------------------------------------
+    output_index_name = f"{prefix}_SDc"
+    output_index_alias = f"{prefix}_SDc"
+    std_output_index_name = f"{prefix}_SDc_MM"
+    std_output_index_alias = f"Std_{prefix}_SDc"
+
+    # ----------------------------------------------------------------------
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
-    field_raw = f"{prefix}_SDc".upper()
-    field_std = f"Std_{raster_base}_SDc".upper()
+    field_raw = output_index_name.upper()
+    field_std = std_output_index_name.upper()
 
     if field_raw in existing_fields or field_std in existing_fields:
         arcpy.AddError(
-            f"Fields '{prefix}_SDc' and/or 'Std_{raster_base}_SDc' already exist "
-            f"in the analytical grid attribute table.\nPlease remove these fields before re-running the tool."
+            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
+            f"in the analytical grid attribute table.\n"
+            f"Remove these fields before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
     # 1. Convert Degrees -> Radians (raster)
+    # ArcGIS Pro trigonometric functions require radians (not degrees)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Converting degrees to radians...")
     raster_rad = Raster(landscape_ras) / (180.0 / math.pi)
@@ -85,7 +94,7 @@ try:
     arcpy.management.AlterField(zonal_cos_tbl, "SUM", "SumCos", "SumCos")
 
     # ----------------------------------------------------------------------
-    # 4. CREATE ZONAL_STAT TABLE (non-spatial) containing only the grid id
+    # 4. Create empty zonal_stat table (with only the ID field)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Creating zonal_stat table (object id skeleton)...")
     #arcpy.management.TableToTable(grid_fl, workspace_gdb, f"{prefix}_ZONAL_STAT")
@@ -98,6 +107,7 @@ try:
 
     # ----------------------------------------------------------------------
     # 5. JOIN zonal_sin and zonal_cos values into zonal_stat table
+    # <Count> field is from SIN-table
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining zonal sum tables into zonal_stat table...")
     arcpy.management.JoinField(zonal_stat_table, grid_id_field, zonal_sin_tbl, grid_id_field, ["SumSin", "Count"])
@@ -109,7 +119,7 @@ try:
     arcpy.management.AlterField(zonal_stat_table, "Count", "Px_No", "NumberOfPixels")
 
     # ----------------------------------------------------------------------
-    # 7. ADD new attributes R, R_Mn, SDc
+    # 7. Add empty fields for R, R_Mn, SDc
     # ----------------------------------------------------------------------
     arcpy.management.AddField(zonal_stat_table, "R", "DOUBLE")
     arcpy.management.AddField(zonal_stat_table, "R_Mn", "DOUBLE")
@@ -133,8 +143,6 @@ try:
     # operations like sqrt(SumSin^2 + SumCos^2) and avoids geodatabase
     # type conversion issues.
 
-    import textwrap # removing unwanted indentations
-
     code_block = textwrap.dedent("""
         import math
         def calc_r(sin_val, cos_val):
@@ -151,6 +159,7 @@ try:
 
     # ----------------------------------------------------------------------
     # 10. CALCULATE SDc = (180/pi) * sqrt(2*(1 - R_Mn))
+    #     SDc formula from Batschelet (1965)
     # ----------------------------------------------------------------------
     arcpy.management.CalculateField(zonal_stat_table, "SDc","(180/math.pi)*math.sqrt(2*(1-!R_Mn!))","PYTHON3")
 
@@ -166,18 +175,17 @@ try:
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["SDc", "SDc_MIN_MAX"])
 
-    # RENAME joined fields on the grid for clarity (prefix and alias with full raster name)
-    field_name = f"{prefix}_SDc_MM"
-    field_alias = f"Std_{raster_base}_SDc"
-
-    arcpy.management.AlterField(grid_fl, "SDc", f"{prefix}_SDc", raster_base + "_SDc")
-    arcpy.management.AlterField(grid_fl, "SDc_MIN_MAX", field_name, field_alias)
+    # ----------------------------------------------------------------------
+    # 13. Rename joined fields (raw index + standardized index)
+    # ----------------------------------------------------------------------
+    arcpy.management.AlterField(grid_fl, "SDc", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "SDc_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 13. CLEANUP
+    # 14. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
-    for item in (landscape_rad, landscape_sin, landscape_cos, zonal_sin_tbl, zonal_cos_tbl, zonal_stat_table):
+    for item in [landscape_rad, landscape_sin, landscape_cos, zonal_sin_tbl, zonal_cos_tbl, zonal_stat_table]:
         if arcpy.Exists(item):
             try:
                arcpy.management.Delete(item)

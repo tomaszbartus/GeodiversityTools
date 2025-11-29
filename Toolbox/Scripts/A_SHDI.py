@@ -18,32 +18,39 @@ try:
     grid_fl = arcpy.GetParameterAsText(2)                 # grid layer
     grid_id_field = arcpy.GetParameterAsText(3)           # OBJECTID of the grid
 
+    # ----------------------------------------------------------------------
+    # INTERMEDIATE PATHS
+    # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
+    prefix = landscape_attr[:3].upper()
+    out_intersect_fc = f"{workspace_gdb}\\{prefix}_grid"
+    out_mts_fc       = f"{workspace_gdb}\\{prefix}_MtS"
+    freq_table       = f"{workspace_gdb}\\{prefix}_Freq"
+    shdi_table       = f"{workspace_gdb}\\{prefix}_SHDI"
+
+    # ----------------------------------------------------------------------
+    # OUTPUT FIELD NAMES
+    # ----------------------------------------------------------------------
+    output_index_name = f"{prefix}_SHDI"
+    output_index_alias = f"{prefix}_SHDI"
+    std_output_index_name = f"{prefix}_SHDIMM"
+    std_output_index_alias = f"Std_{prefix}_SHDI"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST
     # ----------------------------------------------------------------------
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
-    field_raw = f"{landscape_attr}_SHDI".upper()
-    field_std = f"STD_{landscape_attr}_SHDI".upper()
+    field_raw = output_index_name.upper()
+    field_std = std_output_index_name.upper()
 
     if field_raw in existing_fields or field_std in existing_fields:
         arcpy.AddError(
-            f"Fields '{landscape_attr}_SHDI' and/or 'Std_{landscape_attr}_SHDI' already exist "
+            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
             f"in the analytical grid attribute table.\n"
             f"Please remove these fields before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
-
-    # ----------------------------------------------------------------------
-    # INTERMEDIATE PATHS
-    # ----------------------------------------------------------------------
-    prefix = landscape_attr[:3].upper()
-    out_intersect_fc = f"{workspace_gdb}\\{prefix}_grid"
-    out_mts_fc       = f"{workspace_gdb}\\{prefix}_MtS"
-    freq_table       = f"{workspace_gdb}\\{prefix}_Freq"
-    shdi_table       = f"{workspace_gdb}\\{prefix}_SHDI"
 
     # ----------------------------------------------------------------------
     # 1. INTERSECT
@@ -107,20 +114,20 @@ try:
     arcpy.analysis.Statistics(freq_table, shdi_table,[["SumElement", "SUM"]], case_field)
 
     # ----------------------------------------------------------------------
-    # 8. STANDARDIZE (MIN–MAX) – BEZ ZMIAN!
+    # 8. STANDARDIZE (MIN–MAX)
     # ----------------------------------------------------------------------
     arcpy.management.StandardizeField(shdi_table, "SUM_SumElement", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 9. JOIN TO GRID (UŻYCIE PARAMETRU grid_id_field)
+    # 9. JOIN TO GRID (USE grid_id_field PARAMETER)
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(grid_fl, grid_id_field, shdi_table, case_field,["SUM_SumElement", "SUM_SumElement_MIN_MAX"])
 
     # ----------------------------------------------------------------------
     # 10. RENAME FIELDS
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "SUM_SumElement",f"{prefix}_SHDI",f"{landscape_attr}_SHDI")
-    arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",f"{prefix}_SHDIMM",f"Std_{landscape_attr}_SHDI")
+    arcpy.management.AlterField(grid_fl, "SUM_SumElement", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
     # 11. CLEANUP

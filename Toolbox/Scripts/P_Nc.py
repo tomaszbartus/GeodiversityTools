@@ -1,6 +1,6 @@
 # Geodiversity Tool P_Nc
-# The script calculates the number of geosite (point) categories of a selected
-# landscape feature within each polygon of the analytical grid.
+# The script calculates the number of point features (e.g. geosites) categories of a selected
+# landscape feature within each polygon of the analytical grid
 # Author: bartus@agh.edu.pl
 # 2025-11-23
 
@@ -18,29 +18,35 @@ try:
     grid_fl = arcpy.GetParameterAsText(2)                # grid layer
     grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
 
-    # Workspace GDB
-    workspace_gdb = arcpy.Describe(landscape_fl).path
-
     # ----------------------------------------------------------------------
     # Intermediate feature class and table paths
     # ----------------------------------------------------------------------
-    prefix = landscape_fl[:3].upper()
-    dissolved_fl = f"{workspace_gdb}\\{prefix}_Dis"
+    workspace_gdb = arcpy.Describe(landscape_fl).path
+    prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
+    dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
     nc_table = f"{workspace_gdb}\\{prefix}_Nc"
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS IN ANALYTICAL GRID ALREADY EXIST IN GRID TABLE
+    # OUTPUT FIELD NAMES
+    # ----------------------------------------------------------------------
+    output_index_name = f"{prefix}_Nc"
+    output_index_alias = f"{prefix}_Nc"
+    std_output_index_name = f"{prefix}_Nc_MM"
+    std_output_index_alias = f"Std_{prefix}_Nc"
+
+    # ----------------------------------------------------------------------
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
-    field_raw = (prefix + "_P_Nc").upper()
-    field_std = ("Std_" + landscape_attr + "_P_Nc").upper()
+    field_raw = output_index_name.upper()
+    field_std = std_output_index_name.upper()
 
     if field_raw in existing_fields or field_std in existing_fields:
         arcpy.AddError(
-            f"Fields '{prefix}_P_Nc' and/or 'Std_{landscape_attr}_P_Nc' already exist "
+            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
             f"in the analytical grid attribute table.\n"
-            f"Please remove these fields before re-running the tool."
+            f"Remove these fields before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
 
@@ -54,12 +60,12 @@ try:
     # ----------------------------------------------------------------------
     # 2. Dissolve points by category within each cell of the analytical grid
     # ----------------------------------------------------------------------
-    arcpy.management.Dissolve(landscape_fl, dissolved_fl, [landscape_attr, "NEAR_FID"])
+    arcpy.management.Dissolve(landscape_fl, dissolved_fc, [landscape_attr, "NEAR_FID"])
 
     # ----------------------------------------------------------------------
     # 3. Calculate the frequency of point category groups within each cell of the analytical grid
     # ----------------------------------------------------------------------
-    arcpy.analysis.Frequency(dissolved_fl, nc_table, "NEAR_FID")
+    arcpy.analysis.Frequency(dissolved_fc, nc_table, "NEAR_FID")
 
     # ----------------------------------------------------------------------
     # 4. Standardization (Min-Max)
@@ -74,8 +80,8 @@ try:
     # ----------------------------------------------------------------------
     # 6. Rename table attributes
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "FREQUENCY", prefix + "_P_Nc", landscape_fl + "_P_Nc")
-    arcpy.management.AlterField(grid_fl, "FREQUENCY_MIN_MAX", prefix + "_P_Nc_MM", "Std_" + landscape_fl + "_A_Nc")
+    arcpy.management.AlterField(grid_fl, "FREQUENCY", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "FREQUENCY_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
     # 7. Cleanup
@@ -83,7 +89,7 @@ try:
 
     arcpy.management.DeleteField(landscape_fl, ["NEAR_FID", "NEAR_DIST"])
 
-    for fl in (dissolved_fl, nc_table):
+    for fl in (dissolved_fc, nc_table):
         if arcpy.Exists(fl):
             arcpy.management.Delete(fl)
 

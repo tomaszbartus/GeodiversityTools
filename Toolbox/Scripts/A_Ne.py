@@ -1,7 +1,7 @@
 # Geodiversity Tool A_Ne
-# Calculates the number of landscape feature elements (polygons) within each polygon of an analytical grid
+# Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus@agh.edu.pl)
-# 2025-11-20
+# 2025-11-29
 
 import arcpy
 
@@ -24,21 +24,6 @@ try:
     prefix = landscape_attr[:3].upper()
 
     # ----------------------------------------------------------------------
-    # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
-    # ----------------------------------------------------------------------
-    field_raw = f"{prefix}_Ne"
-    field_std = f"{prefix}_Ne_MM"
-
-    existing_fields = [f.name for f in arcpy.ListFields(grid_fl)]
-
-    if field_raw in existing_fields or field_std in existing_fields:
-        arcpy.AddError(
-            f"Fields '{field_raw}' and/or '{field_std}' already exist in the analytical grid.\n"
-            f"Remove these fields before re-running the A_Ne tool."
-        )
-        raise Exception("Existing output fields detected. Aborting tool execution.")
-
-    # ----------------------------------------------------------------------
     # Intermediate datasets
     # ----------------------------------------------------------------------
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
@@ -46,9 +31,34 @@ try:
     ne_table     = f"{workspace_gdb}\\{prefix}_Ne_Tab"
 
     # ----------------------------------------------------------------------
-    # 1. Intersect landscape FL with grid FL (create intersect_fc - ..._Ne_Tab FC)
+    # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL", "", "INPUT")
+    output_index_name = f"{prefix}_Ne"
+    output_index_alias = f"{prefix}_Ne"
+    std_output_index_name = f"{prefix}_Ne_MM"
+    std_output_index_alias = f"Std_{prefix}_Ne"
+
+    # ----------------------------------------------------------------------
+    # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
+    # ----------------------------------------------------------------------
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    field_raw = output_index_name.upper()
+    field_std = std_output_index_name.upper()
+
+    if field_raw in existing_fields or field_std in existing_fields:
+        arcpy.AddError(
+            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
+            f"in the analytical grid attribute table.\n"
+            f"Please remove these fields before re-running the tool."
+        )
+        raise Exception("Field name conflict – remove existing fields and try again.")
+
+    # ----------------------------------------------------------------------
+    # 1. Intersect landscape FL with grid FL (creates intersect_fc containing FID_<grid> for grouping)
+    # ----------------------------------------------------------------------
+    #arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL", "", "INPUT")
+    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ONLY_FID")
 
     # ----------------------------------------------------------------------
     # 2. Multipart → singlepart (create mts_fc - ..._Ne_MtS FC)
@@ -68,9 +78,8 @@ try:
     # ----------------------------------------------------------------------
     # 4. Statistics: count elements per grid cell
     # ----------------------------------------------------------------------
-    #case_field = grid_id_field
-    case_field = "FID_" + grid_fl
-    # arcpy.analysis.Statistics(in_table, out_table, statistics_fields, {case_field}, {concatenation_separator})
+    case_field = f"FID_{arcpy.Describe(grid_fl).name}"
+    #case_field = "FID_" + grid_fl
     arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], case_field)
 
     # ----------------------------------------------------------------------
@@ -86,8 +95,8 @@ try:
     # ----------------------------------------------------------------------
     # 7. Rename joined fields
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "SUM_Count", field_raw, landscape_attr + "_Ne")
-    arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", field_std, "Std_" + landscape_attr + "_Ne")
+    arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
     # 8. Cleanup
