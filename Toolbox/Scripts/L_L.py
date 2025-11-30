@@ -60,8 +60,9 @@ try:
     # ----------------------------------------------------------------------
     # 2. Dissolve lines
     # ----------------------------------------------------------------------
+    grid_fid_field = f"FID_{arcpy.Describe(grid_fl).baseName}"
     # arcpy.management.Dissolve(in_features, out_feature_class, {dissolve_field}, {statistics_fields}, {multi_part}, {unsplit_lines}, {concatenation_separator})
-    arcpy.management.Dissolve(intersect_fc, dissolved_fc, grid_id_field)
+    arcpy.management.Dissolve(intersect_fc, dissolved_fc, grid_fid_field)
 
     # ----------------------------------------------------------------------
     # 3. Min-Max standardization
@@ -71,7 +72,7 @@ try:
     # ----------------------------------------------------------------------
     # 4. Join back to grid layer
     # ----------------------------------------------------------------------
-    grid_fid_field = f"FID_{arcpy.Describe(grid_fl).baseName}"
+
     arcpy.management.JoinField(grid_fl, grid_id_field, dissolved_fc, grid_fid_field,["Shape_Length", "Shape_Length_MIN_MAX"])
 
     # ----------------------------------------------------------------------
