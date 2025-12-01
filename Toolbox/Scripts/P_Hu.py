@@ -100,7 +100,7 @@ try:
     # 8. CLEANUP
     # ----------------------------------------------------------------------
     for fc in (intersect_fc, tabulate_intersection_table, Hu_table):
-        if arcpy.Exists(fc):
+       if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
 
     arcpy.ClearWorkspaceCache_management()
