@@ -50,10 +50,7 @@ try:
     # ----------------------------------------------------------------------
     # 1. SPATIAL JOIN – count points inside each grid cell
     # ----------------------------------------------------------------------
-    arcpy.analysis.SpatialJoin(
-        grid_fl, landscape_fl, intersect_fc,
-        "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT"
-    )
+    arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT")
 
     # Rename Join_Count to Ne
     arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
@@ -66,11 +63,7 @@ try:
     # ----------------------------------------------------------------------
     # 3. JOIN BACK TO GRID
     # ----------------------------------------------------------------------
-    arcpy.management.JoinField(
-        grid_fl, grid_id_field,
-        intersect_fc, grid_id_field,
-        ["Ne", "Ne_MIN_MAX"]
-    )
+    arcpy.management.JoinField(grid_fl, grid_id_field, intersect_fc, grid_id_field, ["Ne", "Ne_MIN_MAX"])
 
     # ----------------------------------------------------------------------
     # 4. RENAME JOINED FIELDS
