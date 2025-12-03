@@ -14,9 +14,9 @@ try:
     # PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)     # point feature layer
-    landscape_attr = arcpy.GetParameterAsText(1)   # category field (not used for calculation)
-    grid_fl = arcpy.GetParameterAsText(2)          # analytical grid
-    grid_id_field = arcpy.GetParameterAsText(3)    # grid ID field
+    #landscape_attr = arcpy.GetParameterAsText(1)   # category field (not used for calculation)
+    grid_fl = arcpy.GetParameterAsText(1)          # analytical grid
+    grid_id_field = arcpy.GetParameterAsText(2)    # grid ID field
 
     # ----------------------------------------------------------------------
     # INTERMEDIATE DATA
