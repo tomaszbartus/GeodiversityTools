@@ -14,7 +14,6 @@ try:
     # PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)     # point feature layer
-    #landscape_attr = arcpy.GetParameterAsText(1)   # category field (not used for calculation)
     grid_fl = arcpy.GetParameterAsText(1)          # analytical grid
     grid_id_field = arcpy.GetParameterAsText(2)    # grid ID field
 
@@ -55,10 +54,43 @@ try:
     # Rename Join_Count to Ne
     arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
 
-    # ----------------------------------------------------------------------
-    # 2. STANDARDIZATION (MIN–MAX)
-    # ----------------------------------------------------------------------
-    arcpy.management.StandardizeField(intersect_fc, "Ne", "MIN-MAX", 0, 1)
+    # -----------------------------------------------------------
+    # 2. SAFE MIN–MAX STANDARDIZATION FOR Ne
+    # If MIN(Ne) == MAX(Ne), assign 0 to all rows
+    # -----------------------------------------------------------
+
+    # 2.1. Calculate statistics (min and max of Ne)
+    stats_table = "stats_temp"
+    arcpy.analysis.Statistics(intersect_fc, stats_table,[["Ne", "MIN"], ["Ne", "MAX"]])
+
+    # Read min/max values
+    with arcpy.da.SearchCursor(stats_table, ["MIN_Ne", "MAX_Ne"]) as cursor:
+        for row in cursor:
+            min_ne = float(row[0])
+            max_ne = float(row[1])
+
+    # Remove temporary stats table
+    arcpy.management.Delete(stats_table)
+
+    # 2.2. Case 1 — all values identical → assign 0 to all records
+    if min_ne == max_ne:
+        arcpy.AddMessage(
+            "All Ne values are identical (MIN = MAX). "
+            "Skipping Min–Max standardization. Assigning 0 to Ne_MIN_MAX."
+        )
+
+        # Add new field for standardized values
+        if "Ne_MIN_MAX" not in [f.name for f in arcpy.ListFields(intersect_fc)]:
+            arcpy.management.AddField(intersect_fc, "Ne_MIN_MAX", "DOUBLE")
+
+        # Set all Ne_MIN_MAX values to 0
+        arcpy.management.CalculateField(intersect_fc,"Ne_MIN_MAX",0,"PYTHON3")
+
+    # 2.3. Case 2 — normal standardization
+    else:
+        arcpy.AddMessage("Performing Min–Max standardization of Ne.")
+
+        arcpy.management.StandardizeField(intersect_fc,"Ne", "MIN-MAX",0, 1)
 
     # ----------------------------------------------------------------------
     # 3. JOIN BACK TO GRID
