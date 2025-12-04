@@ -58,12 +58,12 @@ try:
 
     # ----------------------------------------------------------------------
     # 2. TABULATE INTERSECTION
-    # Funkcja tworzy tabelę złożoną z kolumn: 1) ID komórki grida, 2) wartość kategorii, 3) liczby punktów tej kategorii (Nc)
+    # Funkcja tworzy tabelę złożoną z kolumn: 1) ID komórki grida, 2) wartość kategorii, 3) liczby punktów tej kategorii (PNT_COUNT)
     # ----------------------------------------------------------------------
     arcpy.analysis.TabulateIntersection(grid_fl, grid_id_field, landscape_fl, tabulate_intersection_table, landscape_attr)
 
     # ----------------------------------------------------------------------
-    # 3. q_i = Nc / Ne
+    # 3. q_i = PNT_COUNT / Ne
     # ----------------------------------------------------------------------
     # Add new attribute Ne to the tabulate_intersection_table
     arcpy.management.JoinField(tabulate_intersection_table, f"{grid_id_field}_1", intersect_fc, grid_id_field,["Ne"])
