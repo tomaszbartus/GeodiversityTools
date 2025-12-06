@@ -1,8 +1,8 @@
-# Geodiversity Tool L_L
+# Geodiversity Tool L_Tl
 # Calculates the total length of line features of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-11-29
+# 2025-12-06
 
 import arcpy
 
@@ -14,7 +14,6 @@ try:
     # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)      # Line feature layer
-    #landscape_attr = arcpy.GetParameterAsText(1)    # Category field
     grid_fl = arcpy.GetParameterAsText(1)           # Analytical grid layer
     grid_id_field = arcpy.GetParameterAsText(2)     # Grid ID (usually OBJECTID)
 
@@ -30,10 +29,10 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_L"
-    output_index_alias = f"{prefix}_L"
-    std_output_index_name = f"{prefix}_L_MM"
-    std_output_index_alias = f"Std_{prefix}_L"
+    output_index_name = f"{prefix}_Tl"
+    output_index_alias = f"{prefix}_Tl"
+    std_output_index_name = f"{prefix}_Tl_MM"
+    std_output_index_alias = f"Std_{prefix}_Tl"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
