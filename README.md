@@ -83,7 +83,7 @@ GeodiversityTools/
 
 ## Installation
 
-See **[docs/installation.md](docs/installation.md)** for full installation instructions.
+See **[Docs/installation.md](Docs/installation.md)** for full installation instructions.
 
 ---
 
@@ -91,7 +91,7 @@ See **[docs/installation.md](docs/installation.md)** for full installation instr
 
 Examples of running the tools in ArcGIS Pro and Python can be found in:
 
-👉 **[docs/usage_examples.md](docs/usage_examples.md)**
+👉 **[Docs/usage_examples.md](Docs/usage_examples.md)**
 
 ---
 

@@ -25,12 +25,13 @@ GeodiversityTools/
 
 ## 2. Add Toolbox to ArcGIS Pro
 1. Open **ArcGIS Pro**.
-2. Go to the **Catalog** pane.
-3. Right-click **Toolboxes → Add Toolbox**.
-4. Browse to:
+2. Open any project.
+3. Go to the **Catalog** pane.
+4. Right-click **Toolboxes → Add Toolbox**.
+5. Browse to:
 ...\GeodiversityTools\Toolbox\GeodiversityTools.atbx
 
-5. Confirm.
+6. Confirm.
 
 The toolbox will now appear in your Toolboxes list.
 
@@ -42,15 +43,16 @@ Tools may reference external Python script files located in:
 
 If you move the repository, update script paths:
 
-1. Right-click a tool → **Properties**.
-2. Go to **Source**.
+1. Right-click a script .py file → **Properties**.
+2. Go to **Execution**.
 3. Update the **Script File** location.
 4. Save.
 
 ---
 
 ## 4. Test the Installation
-Run any tool (e.g., *R_SDc Calculator*) on a sample raster and polygon grid layer.
+Run any tool (e.g., *R_SD*) on a sample DEM raster and polygon grid layer.
+Run any tool (e.g., *R_SD*) on a sample DEM raster and polygon grid layer.
 
 If you encounter an error:
 - ensure that raster paths contain no special characters,
