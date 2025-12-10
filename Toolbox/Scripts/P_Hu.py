@@ -86,18 +86,25 @@ try:
     arcpy.analysis.Statistics(tabulate_intersection_table, Hu_table,[["H_i", "SUM"]], f"{grid_id_field}_1")
 
     # ----------------------------------------------------------------------
-    # 6. Join back to grid layer
+    # 6. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["SUM_H_i"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 7. Join back to grid layer
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(grid_fl, grid_id_field, Hu_table, f"{grid_id_field}_1",["SUM_H_i"])
 
     # ----------------------------------------------------------------------
-    # 7. Rename joined fields
+    # 8. Rename joined fields
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl,"SUM_H_i", output_index_name, output_index_alias)
     arcpy.AddMessage(f"Unit entropy ({output_index_name}) calculated successfully.")
 
     # ----------------------------------------------------------------------
-    # 8. CLEANUP
+    # 9. CLEANUP
     # ----------------------------------------------------------------------
     for fc in (intersect_fc, tabulate_intersection_table, Hu_table):
         if arcpy.Exists(fc):

@@ -119,18 +119,25 @@ try:
     arcpy.management.StandardizeField(shdi_table, "SUM_SumElement", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 9. JOIN TO GRID (USE grid_id_field PARAMETER)
+    # 9. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["SUM_SumElement", "SUM_SumElement_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 10. JOIN TO GRID (USE grid_id_field PARAMETER)
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(grid_fl, grid_id_field, shdi_table, case_field,["SUM_SumElement", "SUM_SumElement_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 10. RENAME FIELDS
+    # 11. RENAME FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_SumElement", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 11. CLEANUP
+    # 12. CLEANUP
     # ----------------------------------------------------------------------
     for fc in [out_intersect_fc, out_mts_fc, freq_table, shdi_table]:
         if arcpy.Exists(fc):

@@ -72,7 +72,14 @@ try:
     arcpy.management.StandardizeField(nc_fl, "Join_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 4. Join results back to the grid layer
+    # 4. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["Join_Count", "Join_Count_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 5. Join results back to the grid layer
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(
         grid_fl, grid_id_field, nc_fl, "TARGET_FID",
@@ -80,13 +87,13 @@ try:
     )
 
     # ----------------------------------------------------------------------
-    # 5. Rename joined fields (raw index + standardized index)
+    # 6. Rename joined fields (raw index + standardized index)
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "Join_Count", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "Join_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 6. Cleanup
+    # 7. Cleanup
     # ----------------------------------------------------------------------
     for fl in (dissolved_fl, nc_fl):
         if arcpy.Exists(fl):

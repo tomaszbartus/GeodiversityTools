@@ -170,19 +170,26 @@ try:
     arcpy.management.StandardizeField(zonal_stat_table, "SDc", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 12. JOIN standardized results back to the grid
+    # 12. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["SDc", "SDc_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 13. JOIN standardized results back to the grid
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["SDc", "SDc_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 13. Rename joined fields (raw index + standardized index)
+    # 14. Rename joined fields (raw index + standardized index)
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SDc", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SDc_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 14. CLEANUP
+    # 15. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for item in [landscape_rad, landscape_sin, landscape_cos, zonal_sin_tbl, zonal_cos_tbl, zonal_stat_table]:

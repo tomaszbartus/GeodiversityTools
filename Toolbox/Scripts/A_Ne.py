@@ -85,18 +85,25 @@ try:
     arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 6. Join back to grid layer
+    # 6. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["SUM_Count", "SUM_Count_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 7. Join back to grid layer
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(grid_fl, grid_id_field, ne_table, case_field,["SUM_Count", "SUM_Count_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 7. Rename joined fields
+    # 8. Rename joined fields
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 8. Cleanup
+    # 9. Cleanup
     # ----------------------------------------------------------------------
     for fc in (intersect_fc, mts_fc, ne_table):
         if arcpy.Exists(fc):

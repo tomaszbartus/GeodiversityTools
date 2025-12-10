@@ -69,19 +69,26 @@ try:
     arcpy.management.StandardizeField(dissolved_fc, "Shape_Length", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 4. Join back to grid layer
+    # 4. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["Shape_Length", "Shape_Length_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 5. Join back to grid layer
     # ----------------------------------------------------------------------
 
     arcpy.management.JoinField(grid_fl, grid_id_field, dissolved_fc, grid_fid_field,["Shape_Length", "Shape_Length_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 5. Rename joined fields
+    # 6. Rename joined fields
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "Shape_Length", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "Shape_Length_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 8. Cleanup
+    # 7. Cleanup
     # ----------------------------------------------------------------------
     for fc in (intersect_fc, dissolved_fc):
         if arcpy.Exists(fc):

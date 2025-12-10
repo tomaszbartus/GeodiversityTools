@@ -73,18 +73,25 @@ try:
     arcpy.management.StandardizeField(nc_table, "FREQUENCY", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 5. Join results back to the grid layer
+    # 5. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["FREQUENCY", "FREQUENCY_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 6. Join results back to the grid layer
     # ----------------------------------------------------------------------
     arcpy.management.JoinField(grid_fl, grid_id_field, nc_table, "NEAR_FID",["FREQUENCY", "FREQUENCY_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 6. Rename table attributes
+    # 7. Rename table attributes
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "FREQUENCY", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "FREQUENCY_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 7. Cleanup
+    # 8. Cleanup
     # ----------------------------------------------------------------------
 
     arcpy.management.DeleteField(landscape_fl, ["NEAR_FID", "NEAR_DIST"])
