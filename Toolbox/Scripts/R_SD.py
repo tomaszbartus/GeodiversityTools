@@ -64,19 +64,26 @@ try:
     arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 3. JOIN zonal_stat_table to the analytical grid
+    # 3. Ensure old join fields are removed from grid
+    # ----------------------------------------------------------------------
+    for old_field in ["STD", "STD_MIN_MAX"]:
+        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+            arcpy.management.DeleteField(grid_fl, old_field)
+
+    # ----------------------------------------------------------------------
+    # 4. JOIN zonal_stat_table to the analytical grid
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["STD", "STD_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 4. Rename joined fields (raw index + standardized index)
+    # 5. Rename joined fields (raw index + standardized index)
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "STD", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "STD_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 5. CLEANUP
+    # 6. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for item in [zonal_stat_table]:
