@@ -10,7 +10,7 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL (Feature Layers only)
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)             # polygon FL
     landscape_attr = arcpy.GetParameterAsText(1)           # category field
@@ -18,7 +18,7 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)            # grid OBJECTID-like field
 
     # ----------------------------------------------------------------------
-    # Intermediate datasets
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = landscape_attr[:3].upper()
@@ -30,14 +30,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_Ne"
-    output_index_alias = f"{prefix}_Ne"
-    std_output_index_name = f"{prefix}_Ne_MM"
-    std_output_index_alias = f"Std_{prefix}_Ne"
+    output_index_name = f"{prefix}_ANe"
+    output_index_alias = f"{prefix}_A_Ne"
+    std_output_index_name = f"{prefix}_ANe_MM"
+    std_output_index_alias = f"Std_{prefix}_A_Ne"
 
     # ----------------------------------------------------------------------
-    # CHECK FOR EXISTING OUTPUT FIELDS (re-running protection)
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -52,18 +53,18 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. Intersect landscape FL with grid FL (creates intersect_fc containing FID_<grid> for grouping)
+    # 1. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
     # ----------------------------------------------------------------------
-    #arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL", "", "INPUT")
+    arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
     arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ONLY_FID")
 
     # ----------------------------------------------------------------------
-    # 2. Multipart → singlepart (create mts_fc - ..._Ne_MtS FC)
+    # 2. MULTIPART → SINGLEPART (create mts_fc - ..._Ne_MtS FC)
     # ----------------------------------------------------------------------
     arcpy.management.MultipartToSinglepart(intersect_fc, mts_fc)
 
     # ----------------------------------------------------------------------
-    # 3. Add Count field and set = 1
+    # 3. ADD Count FIELD and set = 1
     # ----------------------------------------------------------------------
     arcpy.management.AddField(mts_fc, "Count", "SHORT")
 
@@ -73,38 +74,48 @@ try:
             cursor.updateRow(row)
 
     # ----------------------------------------------------------------------
-    # 4. Statistics: count elements per grid cell
+    # 4. STATISTICS: count elements per grid cell
     # ----------------------------------------------------------------------
     case_field = f"FID_{arcpy.Describe(grid_fl).name}"
     #case_field = "FID_" + grid_fl
     arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], case_field)
 
     # ----------------------------------------------------------------------
-    # 5. Min-Max standardization
+    # 5. STANDARDIZE A_Ne (MIN-MAX)
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Standardizing A_Ne (Min-Max)...")
     arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 6. Ensure old join fields are removed from grid
+    # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    for old_field in ["SUM_Count", "SUM_Count_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    fields_to_check = ["SUM_COUNT", "SUM_COUNT_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 7. Join back to grid layer
+    # 7. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, ne_table, case_field,["SUM_Count", "SUM_Count_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 8. Rename joined fields
+    # 8. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 9. Cleanup
+    # 9. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in (intersect_fc, mts_fc, ne_table):
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
@@ -112,7 +123,7 @@ try:
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("Ne calculation completed successfully.")
+    arcpy.AddMessage("A_Ne calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")

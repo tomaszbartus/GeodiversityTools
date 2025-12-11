@@ -11,7 +11,7 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)            # polygon feature layer
     landscape_attr = arcpy.GetParameterAsText(1)          # category field
@@ -19,10 +19,11 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)           # OBJECTID of the grid
 
     # ----------------------------------------------------------------------
-    # INTERMEDIATE PATHS
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = landscape_attr[:3].upper()
+
     out_intersect_fc = f"{workspace_gdb}\\{prefix}_grid"
     out_mts_fc       = f"{workspace_gdb}\\{prefix}_MtS"
     freq_table       = f"{workspace_gdb}\\{prefix}_Freq"
@@ -31,14 +32,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_SHDI"
-    output_index_alias = f"{prefix}_SHDI"
+    output_index_name = f"{prefix}_ASHDI"
+    output_index_alias = f"{prefix}_A_SHDI"
     std_output_index_name = f"{prefix}_SHDIMM"
-    std_output_index_alias = f"Std_{prefix}_SHDI"
+    std_output_index_alias = f"Std_{prefix}_A_SHDI"
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -53,12 +55,13 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. INTERSECT
+    # 1. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
     arcpy.analysis.Intersect([landscape_fl, grid_fl], out_intersect_fc, "ALL", "", "INPUT")
 
     # ----------------------------------------------------------------------
-    # 2. SINGLEPART
+    # 2. MULTIPART → SINGLEPART
     # ----------------------------------------------------------------------
     arcpy.management.MultipartToSinglepart(out_intersect_fc, out_mts_fc)
 
@@ -76,7 +79,7 @@ try:
     )
 
     # ----------------------------------------------------------------------
-    # 4. SHDI fields
+    # 4. SHDI INTERMEDIATE FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AddField(freq_table, "p_i", "FLOAT")
     arcpy.management.AddField(freq_table, "ln_p_i", "FLOAT")
@@ -114,24 +117,33 @@ try:
     arcpy.analysis.Statistics(freq_table, shdi_table,[["SumElement", "SUM"]], case_field)
 
     # ----------------------------------------------------------------------
-    # 8. STANDARDIZE (MIN–MAX)
+    # 8. STANDARDIZE A_SHDI (MIN–MAX)
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Standardizing A_SHDI (Min-Max)...")
     arcpy.management.StandardizeField(shdi_table, "SUM_SumElement", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 9. Ensure old join fields are removed from grid
+    # 9. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    for old_field in ["SUM_SumElement", "SUM_SumElement_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    fields_to_check = ["SUM_SUMELEMENT", "SUM_SUMELEMENT_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 10. JOIN TO GRID (USE grid_id_field PARAMETER)
+    # 10. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, shdi_table, case_field,["SUM_SumElement", "SUM_SumElement_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 11. RENAME FIELDS
+    # 11. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_SumElement", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",std_output_index_name, std_output_index_alias)
@@ -139,6 +151,7 @@ try:
     # ----------------------------------------------------------------------
     # 12. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in [out_intersect_fc, out_mts_fc, freq_table, shdi_table]:
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
@@ -146,7 +159,7 @@ try:
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("SHDI calculation completed successfully.")
+    arcpy.AddMessage("A_SHDI calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError(arcpy.GetMessages(2))

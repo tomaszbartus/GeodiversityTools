@@ -18,7 +18,7 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)     # Grid ID (usually OBJECTID)
 
     # ----------------------------------------------------------------------
-    # INTERMEDIATE FEATURE CLASSES
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
@@ -29,14 +29,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_Tl"
-    output_index_alias = f"{prefix}_Tl"
-    std_output_index_name = f"{prefix}_Tl_MM"
-    std_output_index_alias = f"Std_{prefix}_Tl"
+    output_index_name = f"{prefix}_LTl"
+    output_index_alias = f"{prefix}_L_Tl"
+    std_output_index_name = f"{prefix}_LTl_MM"
+    std_output_index_alias = f"Std_{prefix}_L_Tl"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -51,45 +52,61 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. Intersect landscape FL with grid FL (creates intersect_fc containing FID_<grid> for grouping)
+    # 1. INTERSECT LANDSCAPE LINES WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
     # ----------------------------------------------------------------------
-    #arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL", "", "INPUT")
+    arcpy.AddMessage("Intersecting landscape lines with the analytical grid...")
     arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL")
 
     # ----------------------------------------------------------------------
-    # 2. Dissolve lines
+    # 2. DISSOLVE LINES
     # ----------------------------------------------------------------------
     grid_fid_field = f"FID_{arcpy.Describe(grid_fl).baseName}"
-    # arcpy.management.Dissolve(in_features, out_feature_class, {dissolve_field}, {statistics_fields}, {multi_part}, {unsplit_lines}, {concatenation_separator})
     arcpy.management.Dissolve(intersect_fc, dissolved_fc, grid_fid_field)
 
     # ----------------------------------------------------------------------
-    # 3. Min-Max standardization
+    # 3. CREATE Lines_Length FIELD AND COPY Shape_Length VALUES INTO IT
+    #    (Shape_Length is a system attribute and cannot be removed in step 5)
     # ----------------------------------------------------------------------
-    arcpy.management.StandardizeField(dissolved_fc, "Shape_Length", "MIN-MAX", 0, 1)
+    arcpy.AddMessage("Creating Lines_Length field...")
+    arcpy.management.AddField(dissolved_fc, "Lines_Length", "DOUBLE")
+    arcpy.management.CalculateField(dissolved_fc, "Lines_Length", "!Shape_Length!", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 4. Ensure old join fields are removed from grid
+    # 4. STANDARDIZE L_Tl (MIN-MAX)
     # ----------------------------------------------------------------------
-    for old_field in ["Shape_Length", "Shape_Length_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    arcpy.AddMessage("Standardizing L_Tl (Min-Max)...")
+    arcpy.management.StandardizeField(dissolved_fc, "Lines_Length", "MIN-MAX", 0, 1)
+
+    # ----------------------------------------------------------------------
+    # 5. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # ----------------------------------------------------------------------
+    fields_to_check = ["LINES_LENGTH", "LINES_LENGTH_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 5. Join back to grid layer
+    # 6. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
-
-    arcpy.management.JoinField(grid_fl, grid_id_field, dissolved_fc, grid_fid_field,["Shape_Length", "Shape_Length_MIN_MAX"])
-
-    # ----------------------------------------------------------------------
-    # 6. Rename joined fields
-    # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "Shape_Length", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "Shape_Length_MIN_MAX", std_output_index_name, std_output_index_alias)
+    arcpy.AddMessage("Joining results back to the analytical grid...")
+    arcpy.management.JoinField(grid_fl, grid_id_field, dissolved_fc, grid_fid_field,["Lines_Length", "Lines_Length_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 7. Cleanup
+    # 7. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
+    arcpy.management.AlterField(grid_fl, "Lines_Length", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "Lines_Length_MIN_MAX", std_output_index_name, std_output_index_alias)
+
+    # ----------------------------------------------------------------------
+    # 8. CLEANUP
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in (intersect_fc, dissolved_fc):
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
@@ -97,7 +114,7 @@ try:
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("Ne calculation completed successfully.")
+    arcpy.AddMessage("L_Tl calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("A geoprocessing error occurred:")
