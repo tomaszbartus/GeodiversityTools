@@ -11,9 +11,9 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    # 0 - Input landscape raster (continuous variable)
+    # 0 - Input RASTER, LINEAR landscape feature (continuous variable)
     # 1 - Analytical grid feature layer (polygon layer)
     # 2 - Analytical grid identification field (e.g. OBJECTID)
     landscape_ras = arcpy.GetParameterAsText(0)
@@ -21,24 +21,26 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)
 
     # ----------------------------------------------------------------------
-    # INTERMEDIATE DATA
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
+
     zonal_stat_table = f"{workspace_gdb}\\{prefix}_ZONAL_STAT"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_SD"
-    output_index_alias = f"{prefix}_SD"
-    std_output_index_name = f"{prefix}_SD_MM"
-    std_output_index_alias = f"Std_{prefix}_SD"
+    output_index_name = f"{prefix}_RSD"
+    output_index_alias = f"{prefix}_R_SD"
+    std_output_index_name = f"{prefix}_RSD_MM"
+    std_output_index_alias = f"Std_{prefix}_R_SD"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -53,8 +55,9 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. Zonal statistics as table
+    # 1. ZONAL STATISTICS AS TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Calculating pixel SD within the analytical grid zones...")
     arcpy.sa.ZonalStatisticsAsTable(grid_fl, grid_id_field, landscape_ras, zonal_stat_table, "DATA", "STD")
 
     # ----------------------------------------------------------------------
@@ -64,20 +67,27 @@ try:
     arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 3. Ensure old join fields are removed from grid
+    # 3. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    for old_field in ["STD", "STD_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    fields_to_check = ["STD", "STD_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 4. JOIN zonal_stat_table to the analytical grid
+    # 4. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["STD", "STD_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 5. Rename joined fields (raw index + standardized index)
+    # 5. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "STD", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "STD_MIN_MAX", std_output_index_name, std_output_index_alias)
@@ -96,7 +106,7 @@ try:
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("SD calculation completed successfully.")
+    arcpy.AddMessage("R_SD calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")

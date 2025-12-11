@@ -11,14 +11,14 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)     # point feature layer
     grid_fl = arcpy.GetParameterAsText(1)          # analytical grid
     grid_id_field = arcpy.GetParameterAsText(2)    # grid ID field
 
     # ----------------------------------------------------------------------
-    # INTERMEDIATE DATA
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
@@ -28,14 +28,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_Ne"
-    output_index_alias = f"{prefix}_Ne"
-    std_output_index_name = f"{prefix}_Ne_MM"
-    std_output_index_alias = f"Std_{prefix}_Ne"
+    output_index_name = f"{prefix}_PNe"
+    output_index_alias = f"{prefix}_P_Ne"
+    std_output_index_name = f"{prefix}_PNe_MM"
+    std_output_index_alias = f"Std_{prefix}_P_Ne"
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST
+    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     if output_index_name.upper() in existing_fields or std_output_index_name.upper() in existing_fields:
@@ -49,6 +50,7 @@ try:
     # ----------------------------------------------------------------------
     # 1. SPATIAL JOIN – count points inside each grid cell
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("SPATIALLY JOINING landscape points with the analytical grid...")
     arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT")
 
     # Rename Join_Count to Ne
@@ -88,20 +90,27 @@ try:
 
     # 2.3. Case 2 — normal standardization
     else:
-        arcpy.AddMessage("Performing Min–Max standardization of Ne.")
-
+        arcpy.AddMessage("Performing Min–Max standardization of Ne...")
         arcpy.management.StandardizeField(intersect_fc,"Ne", "MIN-MAX",0, 1)
 
     # ----------------------------------------------------------------------
-    # 3. Ensure old join fields are removed from grid
+    # 3. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    for old_field in ["Ne", "Ne_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    fields_to_check = ["NE", "NE_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 4. JOIN BACK TO GRID
+    # 4. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, intersect_fc, grid_id_field, ["Ne", "Ne_MIN_MAX"])
 
     # ----------------------------------------------------------------------
@@ -113,13 +122,14 @@ try:
     # ----------------------------------------------------------------------
     # 6. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Cleaning intermediate datasets...")
     if arcpy.Exists(intersect_fc):
         arcpy.management.Delete(intersect_fc)
 
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
 
-    arcpy.AddMessage("Geosites Ne calculation completed successfully.")
+    arcpy.AddMessage("P_Ne calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")

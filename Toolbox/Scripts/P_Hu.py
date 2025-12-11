@@ -11,7 +11,7 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)           # point feature layer
     landscape_attr = arcpy.GetParameterAsText(1)         # geosites category field
@@ -19,7 +19,7 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
 
     # ----------------------------------------------------------------------
-    # INTERMEDIATE DATA
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
@@ -31,12 +31,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_Hu"
-    output_index_alias = f"{prefix}_Hu"
+    output_index_name = f"{prefix}_PHu"
+    output_index_alias = f"{prefix}_P_Hu"
+    std_output_index_name = f"{prefix}_PHu_MM"
+    std_output_index_alias = f"Std_{prefix}_P_Hu"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -52,6 +55,7 @@ try:
     # ----------------------------------------------------------------------
     # 1. SPATIAL JOIN
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("SPATIALLY JOINING landscape points with the analytical grid...")
     arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE","KEEP_ALL", "", "INTERSECT")
 
     arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
@@ -71,11 +75,11 @@ try:
     # Add new attribute q_i to the tabulate_intersection_table
     arcpy.management.AddField(tabulate_intersection_table, "q_i", "DOUBLE")
 
-    # Calculate q_i
+    # CALCULATE q_i
     arcpy.management.CalculateField(tabulate_intersection_table,"q_i","(!PNT_COUNT! / !Ne!) if !Ne! > 0 else 0","PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 4. Calculate Unit Entropy H_i = -(q_i * ln(q_i))
+    # 4. CALCULATE UNIT ENTROPY H_i = -(q_i * ln(q_i))
     # ----------------------------------------------------------------------
     arcpy.management.AddField(tabulate_intersection_table, "H_i", "DOUBLE")
     arcpy.management.CalculateField(tabulate_intersection_table,"H_i","-(!q_i! * math.log(!q_i!)) if !q_i! > 0 else 0","PYTHON3")
@@ -86,33 +90,49 @@ try:
     arcpy.analysis.Statistics(tabulate_intersection_table, Hu_table,[["H_i", "SUM"]], f"{grid_id_field}_1")
 
     # ----------------------------------------------------------------------
-    # 6. Ensure old join fields are removed from grid
+    # 6. STANDARDIZE A_Hu (MIN–MAX)
     # ----------------------------------------------------------------------
-    for old_field in ["SUM_H_i"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    arcpy.AddMessage("Standardizing P_Hu (Min-Max)...")
+    arcpy.management.StandardizeField(Hu_table, "SUM_H_i", "MIN-MAX", 0, 1)
+
+    # ----------------------------------------------------------------------
+    # 7. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # ----------------------------------------------------------------------
+    fields_to_check = ["SUM_H_I", "SUM_H_I_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join field from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 7. Join back to grid layer
+    # 8. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
-    arcpy.management.JoinField(grid_fl, grid_id_field, Hu_table, f"{grid_id_field}_1",["SUM_H_i"])
+    arcpy.AddMessage("Joining results back to the analytical grid...")
+    arcpy.management.JoinField(grid_fl, grid_id_field, Hu_table, f"{grid_id_field}_1",["SUM_H_i", "SUM_H_I_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 8. Rename joined fields
+    # 9. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl,"SUM_H_i", output_index_name, output_index_alias)
+    arcpy.management.AlterField(grid_fl, "SUM_H_i_MIN_MAX",std_output_index_name, std_output_index_alias)
     arcpy.AddMessage(f"Unit entropy ({output_index_name}) calculated successfully.")
 
     # ----------------------------------------------------------------------
-    # 9. CLEANUP
+    # 10. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in (intersect_fc, tabulate_intersection_table, Hu_table):
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
 
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
-    arcpy.AddMessage("Hu calculation completed successfully.")
+    arcpy.AddMessage("P_Hu calculation completed successfully.")
 
 except arcpy.ExecuteError:
     arcpy.AddError("Geoprocessing error occurred:")

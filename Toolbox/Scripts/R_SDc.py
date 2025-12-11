@@ -14,9 +14,9 @@ arcpy.env.overwriteOutput = True
 
 try:
     # ----------------------------------------------------------------------
-    # PARAMETERS FROM TOOL
+    # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    # 0 - Input raster landscape feature
+    # 0 - Input RASTER, CIRCULAR landscape feature (continuous variable)
     # 1 - Analytical grid feature layer (polygon layer)
     # 2 - Analytical grid identification field (e.g. OBJECTID)
     landscape_ras = arcpy.GetParameterAsText(0)
@@ -24,13 +24,12 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATA
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
 
-    # intermediate raster/table paths in workspace
     landscape_rad = f"{workspace_gdb}\\{prefix}_RAD"
     landscape_sin = f"{workspace_gdb}\\{prefix}_SIN"
     landscape_cos = f"{workspace_gdb}\\{prefix}_COS"
@@ -42,14 +41,15 @@ try:
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
     # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_SDc"
-    output_index_alias = f"{prefix}_SDc"
-    std_output_index_name = f"{prefix}_SDc_MM"
-    std_output_index_alias = f"Std_{prefix}_SDc"
+    output_index_name = f"{prefix}_RSDc"
+    output_index_alias = f"{prefix}_R_SDc"
+    std_output_index_name = f"{prefix}_RSDcMM"
+    std_output_index_alias = f"Std_{prefix}_R_SDc"
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     field_raw = output_index_name.upper()
@@ -64,7 +64,7 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. Convert Degrees -> Radians (raster)
+    # 1. CONVERT Degrees -> Radians (raster)
     # ArcGIS Pro trigonometric functions require radians (not degrees)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Converting degrees to radians...")
@@ -72,7 +72,7 @@ try:
     raster_rad.save(landscape_rad)
 
     # ----------------------------------------------------------------------
-    # 2. Calculate sin(θ) and cos(θ)
+    # 2. CALCULATE sin(θ) and cos(θ)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Calculating sin and cos rasters...")
     raster_sin = Sin(raster_rad)
@@ -85,7 +85,6 @@ try:
     # 3. ZONAL SUM of sin and cos (per grid cell)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Computing zonal sums (sin/cos)...")
-    # ZonalStatisticsAsTable accepts layer or path for zone data; use grid_fl (layer) and the user-specified id field
     arcpy.sa.ZonalStatisticsAsTable(grid_fl, grid_id_field, landscape_sin, zonal_sin_tbl, "DATA", "SUM")
     arcpy.sa.ZonalStatisticsAsTable(grid_fl, grid_id_field, landscape_cos, zonal_cos_tbl, "DATA", "SUM")
 
@@ -94,10 +93,9 @@ try:
     arcpy.management.AlterField(zonal_cos_tbl, "SUM", "SumCos", "SumCos")
 
     # ----------------------------------------------------------------------
-    # 4. Create empty zonal_stat table (with only the ID field)
+    # 4. CREATE empty zonal_stat table (with only the ID field)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Creating zonal_stat table (object id skeleton)...")
-    #arcpy.management.TableToTable(grid_fl, workspace_gdb, f"{prefix}_ZONAL_STAT")
     arcpy.conversion.TableToTable(grid_fl, workspace_gdb, f"{prefix}_ZONAL_STAT")
 
     # remove all fields except the user-specified id field
@@ -119,7 +117,7 @@ try:
     arcpy.management.AlterField(zonal_stat_table, "Count", "Px_No", "NumberOfPixels")
 
     # ----------------------------------------------------------------------
-    # 7. Add empty fields for R, R_Mn, SDc
+    # 7. ADD EMPTY FIELDS FOR: R, R_Mn, SDc
     # ----------------------------------------------------------------------
     arcpy.management.AddField(zonal_stat_table, "R", "DOUBLE")
     arcpy.management.AddField(zonal_stat_table, "R_Mn", "DOUBLE")
@@ -166,24 +164,31 @@ try:
     # ----------------------------------------------------------------------
     # 11. STANDARDIZE SDc (MIN-MAX)
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing SDc (Min-Max)...")
+    arcpy.AddMessage("Standardizing R_SDc (Min-Max)...")
     arcpy.management.StandardizeField(zonal_stat_table, "SDc", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 12. Ensure old join fields are removed from grid
+    # 12. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    for old_field in ["SDc", "SDc_MIN_MAX"]:
-        if old_field in [f.name for f in arcpy.ListFields(grid_fl)]:
+    fields_to_check = ["SDC", "SDC_MIN_MAX"]
+    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+
+    # Checking whether any fields need to be removed at all
+    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+
+    if fields_to_remove:
+        arcpy.AddMessage("Removing old join fields from the grid...")
+        for old_field in fields_to_remove:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 13. JOIN standardized results back to the grid
+    # 13. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["SDc", "SDc_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 14. Rename joined fields (raw index + standardized index)
+    # 14. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SDc", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SDc_MIN_MAX", std_output_index_name, std_output_index_alias)
