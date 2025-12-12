@@ -2,7 +2,7 @@
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-11-29
+# 2025-12-12
 
 import arcpy
 
@@ -34,6 +34,34 @@ try:
     output_index_alias = f"{prefix}_P_Nc"
     std_output_index_name = f"{prefix}_PNc_MM"
     std_output_index_alias = f"Std_{prefix}_P_Nc"
+
+    # ----------------------------------------------------------------------
+    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # ----------------------------------------------------------------------
+    try:
+        arcpy.AddMessage("Removing existing locks...")
+        arcpy.management.RemoveLocks(landscape_fl)
+        arcpy.management.RemoveLocks(grid_fl)
+    except:
+        pass
+
+    # ----------------------------------------------------------------------
+    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
+    # ----------------------------------------------------------------------
+    intermediate_items = [
+        dissolved_fc,
+        nc_table
+    ]
+
+    arcpy.AddMessage("Checking for leftover intermediate datasets...")
+
+    for item in intermediate_items:
+        if arcpy.Exists(item):
+            try:
+                arcpy.management.Delete(item)
+                arcpy.AddMessage(f"Removed leftover dataset: {item}")
+            except:
+                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
@@ -68,7 +96,7 @@ try:
     # ----------------------------------------------------------------------
     # 3. CALCULATE the frequency of point category groups within each cell of the analytical grid
     # ----------------------------------------------------------------------
-    arcpy.analysis.Frequency(dissolved_fc, nc_table, "NEAR_FID")
+    arcpy.analysis.Frequency(dissolved_fc, nc_table, ["NEAR_FID"])
 
     # ----------------------------------------------------------------------
     # 4. STANDARDIZE P_Nc (MIN-MAX)

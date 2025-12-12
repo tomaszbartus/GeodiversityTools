@@ -2,7 +2,7 @@
 # Calculates the number of polygon feature categories of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-11-29
+# 2025-12-12
 
 import arcpy
 
@@ -24,7 +24,7 @@ try:
     workspace_gdb = arcpy.Describe(landscape_fl).path
 
     prefix = landscape_attr[:3].upper()
-    dissolved_fl = f"{workspace_gdb}\\{prefix}_Dis"
+    dissolved_fl = f"in_memory\\{prefix}_Dis"
     nc_fl = f"{workspace_gdb}\\{prefix}_Nc"
 
     # ----------------------------------------------------------------------
@@ -34,6 +34,33 @@ try:
     output_index_alias = f"{prefix}_A_Nc"
     std_output_index_name = f"{prefix}_ANc_MM"
     std_output_index_alias = f"Std_{prefix}_A_Nc"
+
+    # ----------------------------------------------------------------------
+    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # ----------------------------------------------------------------------
+    try:
+        arcpy.AddMessage("Removing existing locks...")
+        arcpy.management.RemoveLocks(landscape_fl)
+        arcpy.management.RemoveLocks(grid_fl)
+    except:
+        pass
+
+    # ----------------------------------------------------------------------
+    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
+    # ----------------------------------------------------------------------
+    intermediate_items = [
+        nc_fl
+    ]
+
+    arcpy.AddMessage("Checking for leftover intermediate datasets...")
+
+    for item in intermediate_items:
+        if arcpy.Exists(item):
+            try:
+                arcpy.management.Delete(item)
+                arcpy.AddMessage(f"Removed leftover dataset: {item}")
+            except:
+                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
@@ -108,8 +135,11 @@ try:
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for fl in (dissolved_fl, nc_fl):
-        if arcpy.Exists(fl):
-            arcpy.management.Delete(fl)
+        try:
+            if arcpy.Exists(fl):
+                arcpy.management.Delete(fl)
+        except:
+            arcpy.AddWarning(f"Could not delete intermediate dataset: {fl}")
 
     arcpy.ClearWorkspaceCache_management()
     arcpy.management.Compact(workspace_gdb)
