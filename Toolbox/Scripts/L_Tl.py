@@ -2,7 +2,7 @@
 # Calculates the total length of line features of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-06
+# 2025-12-12
 
 import arcpy
 
@@ -33,6 +33,34 @@ try:
     output_index_alias = f"{prefix}_L_Tl"
     std_output_index_name = f"{prefix}_LTl_MM"
     std_output_index_alias = f"Std_{prefix}_L_Tl"
+
+    # ----------------------------------------------------------------------
+    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # ----------------------------------------------------------------------
+    try:
+        arcpy.AddMessage("Removing existing locks...")
+        arcpy.management.RemoveLocks(landscape_fl)
+        arcpy.management.RemoveLocks(grid_fl)
+    except:
+        pass
+
+    # ----------------------------------------------------------------------
+    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
+    # ----------------------------------------------------------------------
+    intermediate_items = [
+        intersect_fc,
+        dissolved_fc
+    ]
+
+    arcpy.AddMessage("Checking for leftover intermediate datasets...")
+
+    for item in intermediate_items:
+        if arcpy.Exists(item):
+            try:
+                arcpy.management.Delete(item)
+                arcpy.AddMessage(f"Removed leftover dataset: {item}")
+            except:
+                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE

@@ -2,7 +2,7 @@
 # Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
 # in each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2025-11-29
+# Date: 2025-12-12
 
 import arcpy
 
@@ -27,7 +27,8 @@ try:
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
 
-    zonal_stat_table = f"{workspace_gdb}\\{prefix}_ZONAL_STAT"
+    #zonal_stat_table = f"{workspace_gdb}\\{prefix}_ZONAL_STAT"
+    zonal_stat_table = fr"in_memory\{prefix}_ZONAL_STAT"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -36,6 +37,16 @@ try:
     output_index_alias = f"{prefix}_R_SD"
     std_output_index_name = f"{prefix}_RSD_MM"
     std_output_index_alias = f"Std_{prefix}_R_SD"
+
+    # ----------------------------------------------------------------------
+    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # ----------------------------------------------------------------------
+    try:
+        arcpy.AddMessage("Removing existing locks...")
+        arcpy.management.RemoveLocks(landscape_ras)
+        arcpy.management.RemoveLocks(grid_fl)
+    except:
+        pass
 
     # ----------------------------------------------------------------------
     # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
