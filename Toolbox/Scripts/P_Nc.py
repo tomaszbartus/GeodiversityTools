@@ -2,7 +2,7 @@
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-12
+# 2025-12-14
 
 import arcpy
 
@@ -26,6 +26,7 @@ try:
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
     dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
     nc_table = f"{workspace_gdb}\\{prefix}_Nc"
+    stats_table = f"in_memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -99,12 +100,43 @@ try:
     arcpy.analysis.Frequency(dissolved_fc, nc_table, ["NEAR_FID"])
 
     # ----------------------------------------------------------------------
-    # 4. STANDARDIZE P_Nc (MIN-MAX)
+    # 4. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
+    # If MIN(Nc) == MAX(Nc), assign 0 to all rows
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing P_Nc (Min-Max)...")
-    arcpy.management.StandardizeField(nc_table, "FREQUENCY", "MIN-MAX", 0, 1)
 
-     # ----------------------------------------------------------------------
+    # 4.1. Calculate statistics (min and max of Nc) using in_memory table
+    arcpy.analysis.Statistics(nc_table, stats_table, [["FREQUENCY", "MIN"], ["FREQUENCY", "MAX"]])
+
+    # 4.2. Read min/max values
+    with arcpy.da.SearchCursor(stats_table, ["MIN_FREQUENCY", "MAX_FREQUENCY"]) as cursor:
+        for row in cursor:
+            min_FREQUENCY = float(row[0])
+            max_FREQUENCY = float(row[1])
+
+    # 4.3. Delete temporary in_memory table
+    arcpy.management.Delete(stats_table)
+
+    # 4.4. Case 1 — all values identical → assign 0 to all records
+    if min_FREQUENCY == max_FREQUENCY:
+        arcpy.AddMessage(
+            "All Nc values are identical (MIN = MAX). "
+            "Skipping Min–Max standardization. Assigning 0 to FREQUENCY_MIN_MAX."
+        )
+
+        # Add new field for standardized values
+        if "FREQUENCY_MIN_MAX" not in [f.name for f in arcpy.ListFields(nc_table)]:
+            arcpy.management.AddField(nc_table, "FREQUENCY_MIN_MAX", "DOUBLE")
+
+        # Set all FREQUENCY_MIN_MAX values to 0
+        arcpy.management.CalculateField(nc_table, "FREQUENCY_MIN_MAX", 0, "PYTHON3")
+
+    # 4.5. Case 2 — normal standardization
+    else:
+        arcpy.AddMessage("Performing Min–Max standardization of Nc...")
+        arcpy.management.StandardizeField(nc_table, "FREQUENCY", "MIN-MAX", 0, 1)
+
+    # ----------------------------------------------------------------------
     # 5. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["FREQUENCY", "FREQUENCY_MIN_MAX"]

@@ -2,7 +2,7 @@
 # Calculates the number of geosites (point features)
 # within each polygon of the analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-12
+# 2025-12-14
 
 import arcpy
 
@@ -24,6 +24,7 @@ try:
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
 
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
+    stats_table = f"in_memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -89,7 +90,6 @@ try:
     # -----------------------------------------------------------
 
     # 2.1. Calculate statistics (min and max of Ne) using in_memory table
-    stats_table = f"in_memory\\{prefix}_stats_temp"
     arcpy.analysis.Statistics(intersect_fc, stats_table, [["Ne", "MIN"], ["Ne", "MAX"]])
 
     # 2.2. Read min/max values
