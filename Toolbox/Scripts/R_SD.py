@@ -1,4 +1,4 @@
-# Geodiversity Tool R_SD
+# Geodiversity Tool R_SD (in_memoey)
 # Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
 # in each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
@@ -27,8 +27,8 @@ try:
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
 
-    #zonal_stat_table = f"{workspace_gdb}\\{prefix}_ZONAL_STAT"
     zonal_stat_table = fr"in_memory\{prefix}_ZONAL_STAT"
+    stats_table = fr"in_memory\{prefix}_STD_STATS"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -74,13 +74,49 @@ try:
     # ----------------------------------------------------------------------
     # 2. STANDARDIZE SD (MIN-MAX)
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing SD (Min-Max)...")
-    arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1)
+    arcpy.AddMessage("Standardizing SD using manual Min-Max normalization...")
+    #arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1) #Problems with standardize in in_memory mode
+
+    # ----------------------------------------------------------------------
+    # 2.1. CALCULATE MIN & MAX OF STD
+    # ----------------------------------------------------------------------
+    arcpy.analysis.Statistics(zonal_stat_table, stats_table, [["STD", "MIN"], ["STD", "MAX"]])
+
+    with arcpy.da.SearchCursor(stats_table, ["MIN_STD", "MAX_STD"]) as cursor:
+        min_std, max_std = next(cursor)
+
+    arcpy.management.Delete(stats_table)
+
+    # ----------------------------------------------------------------------
+    # 2.2. CREATE MIN-MAX STANDARDIZED FIELD
+    # ----------------------------------------------------------------------
+    std_field_name = "STD_MM"
+    arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE")
+
+    if max_std == min_std:
+        arcpy.AddWarning(
+            "STD has constant value across all zones. "
+            "Standardized values will be set to 0."
+        )
+        arcpy.management.CalculateField( zonal_stat_table, std_field_name,"0","PYTHON3")
+    else:
+        code_block = f"""
+def minmax(val):
+    return (val - {min_std}) / ({max_std} - {min_std})
+"""
+
+        arcpy.management.CalculateField(
+            zonal_stat_table,
+            std_field_name,
+            "minmax(!STD!)",
+            "PYTHON3",
+            code_block
+        )
 
     # ----------------------------------------------------------------------
     # 3. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
-    fields_to_check = ["STD", "STD_MIN_MAX"]
+    fields_to_check = ["STD", std_field_name]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
 
     # Checking whether any fields need to be removed at all
@@ -95,16 +131,16 @@ try:
     # 4. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field, ["STD", "STD_MIN_MAX"])
+    arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field,["STD", std_field_name])
 
     # ----------------------------------------------------------------------
     # 5. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "STD", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "STD_MIN_MAX", std_output_index_name, std_output_index_alias)
+    arcpy.management.AlterField(grid_fl, std_field_name, std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 6. CLEANUP
+    # 7. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for item in [zonal_stat_table]:
