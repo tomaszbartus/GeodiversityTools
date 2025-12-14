@@ -1,7 +1,7 @@
 # Geodiversity Tool A_Ne
 # Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-12
+# 2025-12-14
 
 import arcpy
 
@@ -13,19 +13,19 @@ try:
     # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
     landscape_fl = arcpy.GetParameterAsText(0)             # polygon FL
-    landscape_attr = arcpy.GetParameterAsText(1)           # category field
-    grid_fl = arcpy.GetParameterAsText(2)                  # analytical grid FL
-    grid_id_field = arcpy.GetParameterAsText(3)            # grid OBJECTID-like field
+    grid_fl = arcpy.GetParameterAsText(1)                  # analytical grid FL
+    grid_id_field = arcpy.GetParameterAsText(2)            # grid OBJECTID-like field
 
     # ----------------------------------------------------------------------
     # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
-    prefix = landscape_attr[:3].upper()
+    prefix = landscape_fl[:3].upper()
 
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
     mts_fc       = f"{workspace_gdb}\\{prefix}_Ne_MtS"
     ne_table     = f"{workspace_gdb}\\{prefix}_Ne_Tab"
+    stats_table = f"in_memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -110,10 +110,41 @@ try:
     arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], case_field)
 
     # ----------------------------------------------------------------------
-    # 5. STANDARDIZE A_Ne (MIN-MAX)
+    # 5. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
+    # If MIN(Ne) == MAX(Ne), assign 0 to all rows
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing A_Ne (Min-Max)...")
-    arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
+
+    # 5.1. Calculate statistics (min and max of Ne) using in_memory table
+    arcpy.analysis.Statistics(ne_table, stats_table, [["SUM_Count", "MIN"], ["SUM_Count", "MAX"]])
+
+    # 5.2. Read min/max values
+    with arcpy.da.SearchCursor(stats_table, ["MIN_SUM_Count", "MAX_SUM_Count"]) as cursor:
+        for row in cursor:
+            min_SUM_Count = float(row[0])
+            max_SUM_Count = float(row[1])
+
+    # 5.3. Delete temporary in_memory table
+    arcpy.management.Delete(stats_table)
+
+    # 5.4. Case 1 — all values identical → assign 0 to all records
+    if min_SUM_Count == max_SUM_Count:
+        arcpy.AddMessage(
+            "All Ne values are identical (MIN = MAX). "
+            "Skipping Min–Max standardization. Assigning 0 to SUM_Count_MIN_MAX."
+        )
+
+        # Add new field for standardized values
+        if "SUM_Count_MIN_MAX" not in [f.name for f in arcpy.ListFields(ne_table)]:
+            arcpy.management.AddField(ne_table, "SUM_Count_MIN_MAX", "DOUBLE")
+
+        # Set all SUM_Count_MIN_MAX values to 0
+        arcpy.management.CalculateField(ne_table, "SUM_Count_MIN_MAX", 0, "PYTHON3")
+
+    # 5.5. Case 2 — normal standardization
+    else:
+        arcpy.AddMessage("Performing Min–Max standardization of Ne...")
+        arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
     # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID

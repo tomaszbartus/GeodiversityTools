@@ -2,7 +2,7 @@
 # Calculates the number of polygon feature categories of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-12
+# 2025-12-14
 
 import arcpy
 
@@ -26,6 +26,7 @@ try:
     prefix = landscape_attr[:3].upper()
     dissolved_fl = f"in_memory\\{prefix}_Dis"
     nc_fl = f"{workspace_gdb}\\{prefix}_Nc"
+    stats_table = f"in_memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -95,11 +96,42 @@ try:
         "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT"
     )
 
-    # ----------------------------------------------------------------------
-    # 3. STANDARDIZE A_Nc (MIN-MAX)
-    # ----------------------------------------------------------------------
+    # -----------------------------------------------------------
+    # 3. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
+    # If MIN(Nc) == MAX(Nc), assign 0 to all rows
+    # -----------------------------------------------------------
     arcpy.AddMessage("Standardizing A_Nc (Min-Max)...")
-    arcpy.management.StandardizeField(nc_fl, "Join_Count", "MIN-MAX", 0, 1)
+
+    # 3.1. Calculate statistics (min and max of Nc) using in_memory table
+    arcpy.analysis.Statistics(nc_fl, stats_table, [["Join_Count", "MIN"], ["Join_Count", "MAX"]])
+
+    # 3.2. Read min/max values
+    with arcpy.da.SearchCursor(stats_table, ["MIN_Join_Count", "MAX_Join_Count"]) as cursor:
+        for row in cursor:
+            min_Join_Count = float(row[0])
+            max_Join_Count = float(row[1])
+
+    # 3.3. Delete temporary in_memory table
+    arcpy.management.Delete(stats_table)
+
+    # 3.4. Case 1 — all values identical → assign 0 to all records
+    if min_Join_Count == max_Join_Count:
+        arcpy.AddMessage(
+            "All Nc values are identical (MIN = MAX). "
+            "Skipping Min–Max standardization. Assigning 0 to Join_Count_MIN_MAX."
+        )
+
+        # Add new field for standardized values
+        if "Join_Count_MIN_MAX" not in [f.name for f in arcpy.ListFields(nc_fl)]:
+            arcpy.management.AddField(nc_fl, "Join_Count_MIN_MAX", "DOUBLE")
+
+        # Set all Join_Count_MIN_MAX values to 0
+        arcpy.management.CalculateField(nc_fl, "Join_Count_MIN_MAX", 0, "PYTHON3")
+
+    # 3.5. Case 2 — normal standardization
+    else:
+        arcpy.AddMessage("Performing Min–Max standardization of Join_Count...")
+        arcpy.management.StandardizeField(nc_fl, "Join_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
     # 4. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
@@ -134,7 +166,7 @@ try:
     # 7. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Cleaning intermediate datasets...")
-    for fl in (dissolved_fl, nc_fl):
+    for fl in (dissolved_fl, nc_fl, stats_table):
         try:
             if arcpy.Exists(fl):
                 arcpy.management.Delete(fl)
