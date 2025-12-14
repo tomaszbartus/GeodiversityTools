@@ -43,6 +43,8 @@ GeodiversityTools/
 │ ├── GeodiversityTools.stylex
 │
 ├── TestData/
+│ ├── TestData.md
+│ ├── TestData.ppkx
 │
 ├── Toolbox/
 │ ├── Images/
@@ -92,6 +94,14 @@ See **[Docs/installation.md](Docs/installation.md)** for full installation instr
 Examples of running the tools in ArcGIS Pro and Python can be found in:
 
 👉 **[Docs/usage_examples.md](Docs/usage_examples.md)**
+
+---
+
+## Test Data
+
+Test data have been prepared for testing diversity indices. For more information, see:
+
+👉 **[TestData/TestData.md](TestData/TestData.md)**
 
 ---
 
