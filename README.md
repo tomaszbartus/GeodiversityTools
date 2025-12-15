@@ -11,6 +11,7 @@ The tools are implemented as:
 
 - a custom ArcGIS Pro Toolbox (`.atbx`)
 - a collection of Python scripts (`.py`)
+- a test ArcGIS Pro data (`.ppkx`)
 - documentation for installation and usage
 
 The workflows support analyses such as:
