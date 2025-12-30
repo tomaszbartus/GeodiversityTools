@@ -1,12 +1,12 @@
 # Geodiversity Tools for ArcGIS Pro
 
 **Author:** Tomasz Bartuś  
-**Version:** 1.0 (development)  
+**Version:** 0.1.0 (development)  
 **ArcGIS Pro:** 3.x
 
 ## Overview
 
-This repository contains a set of geoprocessing tools designed to calculate key criteria used in the assessment of landscape geodiversity.  
+This repository contains a set of geoprocessing tools designed to calculate partial criteria used in the assessment of landscape geodiversity.  
 The tools are implemented as:
 
 - a custom ArcGIS Pro Toolbox (`.atbx`)
