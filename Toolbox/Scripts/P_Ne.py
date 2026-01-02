@@ -18,13 +18,14 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)    # grid ID field
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
 
+    stat_zone_field_ID = "StatZoneID"
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
-    stats_table = f"in_memory\\{prefix}_stats_temp"
+    stats_table = f"memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -76,7 +77,19 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. SPATIAL JOIN – count points inside each grid cell
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
+
+    # ----------------------------------------------------------------------
+    # 2. SPATIAL JOIN – count points inside each grid cell
     # ----------------------------------------------------------------------
     arcpy.AddMessage("SPATIALLY JOINING landscape points with the analytical grid...")
     arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE", "KEEP_ALL", "", "INTERSECT")
@@ -85,23 +98,23 @@ try:
     arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
 
     # -----------------------------------------------------------
-    # 2. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
+    # 3. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
     # If MIN(Ne) == MAX(Ne), assign 0 to all rows
     # -----------------------------------------------------------
 
-    # 2.1. Calculate statistics (min and max of Ne) using in_memory table
+    # 3.1. Calculate statistics (min and max of Ne) using in_memory table
     arcpy.analysis.Statistics(intersect_fc, stats_table, [["Ne", "MIN"], ["Ne", "MAX"]])
 
-    # 2.2. Read min/max values
+    # 3.2. Read min/max values
     with arcpy.da.SearchCursor(stats_table, ["MIN_Ne", "MAX_Ne"]) as cursor:
         for row in cursor:
             min_ne = float(row[0])
             max_ne = float(row[1])
 
-    # 2.3. Delete temporary in_memory table
+    # 3.3. Delete temporary in_memory table
     arcpy.management.Delete(stats_table)
 
-    # 2.4. Case 1 — all values identical → assign 0 to all records
+    # 3.4. Case 1 — all values identical → assign 0 to all records
     if min_ne == max_ne:
         arcpy.AddMessage(
             "All Ne values are identical (MIN = MAX). "
@@ -115,13 +128,13 @@ try:
         # Set all Ne_MIN_MAX values to 0
         arcpy.management.CalculateField(intersect_fc, "Ne_MIN_MAX", 0, "PYTHON3")
 
-    # 2.5. Case 2 — normal standardization
+    # 3.5. Case 2 — normal standardization
     else:
         arcpy.AddMessage("Performing Min–Max standardization of Ne...")
         arcpy.management.StandardizeField(intersect_fc, "Ne", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 3. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 4. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["NE", "NE_MIN_MAX"]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -135,26 +148,30 @@ try:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 4. JOIN RESULTS BACK TO THE GRID LAYER
+    # 5. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, intersect_fc, grid_id_field, ["Ne", "Ne_MIN_MAX"])
+    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, intersect_fc, stat_zone_field_ID, ["Ne", "Ne_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 5. RENAME JOINED FIELDS
+    # 6. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "Ne", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "Ne_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 6. CLEANUP
+    # 7. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     if arcpy.Exists(intersect_fc):
         arcpy.management.Delete(intersect_fc)
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("P_Ne calculation completed successfully.")
 

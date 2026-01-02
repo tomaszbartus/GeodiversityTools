@@ -2,7 +2,7 @@
 # Calculates the Shannon–Weaver diversity index (SHDI) for a selected landscape feature (polygon feature class)
 # in each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2025-12-12
+# Date: 2026-01-02
 
 import arcpy
 import math
@@ -19,11 +19,12 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)           # OBJECTID of the grid
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = landscape_attr[:3].upper()
 
+    stat_zone_field_ID = "StatZoneID"
     out_intersect_fc = f"{workspace_gdb}\\{prefix}_grid"
     out_mts_fc       = f"{workspace_gdb}\\{prefix}_MtS"
     freq_table       = f"{workspace_gdb}\\{prefix}_Freq"
@@ -85,50 +86,59 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
+
+    # ----------------------------------------------------------------------
+    # 2. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
     arcpy.analysis.Intersect([landscape_fl, grid_fl], out_intersect_fc, "ALL", "", "INPUT")
 
     # ----------------------------------------------------------------------
-    # 2. MULTIPART → SINGLEPART
+    # 3. MULTIPART → SINGLEPART
     # ----------------------------------------------------------------------
     arcpy.management.MultipartToSinglepart(out_intersect_fc, out_mts_fc)
 
     # ----------------------------------------------------------------------
-    # 3. STATISTICS OF AREA
+    # 4. STATISTICS OF AREA
     # ----------------------------------------------------------------------
-    grid_base = arcpy.Describe(grid_fl).baseName
-    case_field = "FID_" + grid_base
-
     arcpy.analysis.Statistics(
         out_mts_fc,
         freq_table,
         [["Shape_Area", "SUM"]],
-        [case_field, landscape_attr]
+        [stat_zone_field_ID, landscape_attr]
     )
 
     # ----------------------------------------------------------------------
-    # 4. SHDI INTERMEDIATE FIELDS
+    # 5. SHDI INTERMEDIATE FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AddField(freq_table, "p_i", "FLOAT")
     arcpy.management.AddField(freq_table, "ln_p_i", "FLOAT")
     arcpy.management.AddField(freq_table, "SumElement", "FLOAT")
 
     # ----------------------------------------------------------------------
-    # 5. AREA DICTIONARY
+    # 6. AREA DICTIONARY
     # ----------------------------------------------------------------------
     total_area = {}
-    with arcpy.da.SearchCursor(freq_table, [case_field, "Sum_Shape_Area"]) as s:
+    with arcpy.da.SearchCursor(freq_table, [stat_zone_field_ID, "Sum_Shape_Area"]) as s:
         for fid, area in s:
             area = area if area else 0
             total_area[fid] = total_area.get(fid, 0) + area
 
     # ----------------------------------------------------------------------
-    # 6. CALCULATE p_i, ln(p_i), SumElement
+    # 7. CALCULATE p_i, ln(p_i), SumElement
     # ----------------------------------------------------------------------
     with arcpy.da.UpdateCursor(freq_table,
-                               [case_field, "Sum_Shape_Area", "p_i", "ln_p_i", "SumElement"]) as u:
+                               [stat_zone_field_ID, "Sum_Shape_Area", "p_i", "ln_p_i", "SumElement"]) as u:
         for fid, area, p, ln_p, se in u:
             area = area if area else 0
             denom = total_area.get(fid, 0)
@@ -142,18 +152,18 @@ try:
             u.updateRow([fid, area, p_val, ln_p_val, sum_el])
 
     # ----------------------------------------------------------------------
-    # 7. SUM SHDI
+    # 8. SUM SHDI
     # ----------------------------------------------------------------------
-    arcpy.analysis.Statistics(freq_table, shdi_table,[["SumElement", "SUM"]], case_field)
+    arcpy.analysis.Statistics(freq_table, shdi_table,[["SumElement", "SUM"]], stat_zone_field_ID)
 
     # ----------------------------------------------------------------------
-    # 8. STANDARDIZE A_SHDI (MIN–MAX)
+    # 9. STANDARDIZE A_SHDI (MIN–MAX)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing A_SHDI (Min-Max)...")
     arcpy.management.StandardizeField(shdi_table, "SUM_SumElement", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 9. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 10. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["SUM_SUMELEMENT", "SUM_SUMELEMENT_MIN_MAX"]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -167,27 +177,31 @@ try:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 10. JOIN RESULTS BACK TO THE GRID LAYER
+    # 11. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, shdi_table, case_field,["SUM_SumElement", "SUM_SumElement_MIN_MAX"])
+    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, shdi_table, stat_zone_field_ID,["SUM_SumElement", "SUM_SumElement_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 11. RENAME JOINED FIELDS
+    # 12. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_SumElement", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_SumElement_MIN_MAX",std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 12. CLEANUP
+    # 13. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in [out_intersect_fc, out_mts_fc, freq_table, shdi_table]:
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("A_SHDI calculation completed successfully.")
 

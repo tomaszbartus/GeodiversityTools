@@ -1,8 +1,8 @@
-# Geodiversity Tool R_SD (in_memoey)
+# Geodiversity Tool R_SD (in_memory)
 # Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
 # in each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2025-12-12
+# Date: 2025-12-30
 
 import arcpy
 
@@ -21,14 +21,15 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
     raster_base = arcpy.Describe(landscape_ras).baseName
     prefix = raster_base[:3].upper()
 
-    zonal_stat_table = fr"in_memory\{prefix}_ZONAL_STAT"
-    stats_table = fr"in_memory\{prefix}_STD_STATS"
+    stat_zone_field_ID = "StatZoneID"
+    zonal_stat_table = fr"memory\{prefix}_ZONAL_STAT"
+    stats_table = fr"memory\{prefix}_STD_STATS"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -66,19 +67,31 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. ZONAL STATISTICS AS TABLE
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Calculating pixel SD within the analytical grid zones...")
-    arcpy.sa.ZonalStatisticsAsTable(grid_fl, grid_id_field, landscape_ras, zonal_stat_table, "DATA", "STD")
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 2. STANDARDIZE SD (MIN-MAX)
+    # 2. ZONAL STATISTICS AS TABLE
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage("Calculating pixel SD within the analytical grid zones...")
+    arcpy.sa.ZonalStatisticsAsTable(grid_fl, stat_zone_field_ID, landscape_ras, zonal_stat_table, "DATA", "STD")
+
+    # ----------------------------------------------------------------------
+    # 3. STANDARDIZE SD (MIN-MAX)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing SD using manual Min-Max normalization...")
     #arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1) #Problems with standardize in in_memory mode
 
     # ----------------------------------------------------------------------
-    # 2.1. CALCULATE MIN & MAX OF STD
+    # 3.1. CALCULATE MIN & MAX OF STD
     # ----------------------------------------------------------------------
     arcpy.analysis.Statistics(zonal_stat_table, stats_table, [["STD", "MIN"], ["STD", "MAX"]])
 
@@ -88,7 +101,7 @@ try:
     arcpy.management.Delete(stats_table)
 
     # ----------------------------------------------------------------------
-    # 2.2. CREATE MIN-MAX STANDARDIZED FIELD
+    # 3.2. CREATE MIN-MAX STANDARDIZED FIELD
     # ----------------------------------------------------------------------
     std_field_name = "STD_MM"
     arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE")
@@ -114,7 +127,7 @@ def minmax(val):
         )
 
     # ----------------------------------------------------------------------
-    # 3. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 4. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["STD", std_field_name]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -128,13 +141,13 @@ def minmax(val):
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 4. JOIN RESULTS BACK TO THE GRID LAYER
+    # 5. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, zonal_stat_table, grid_id_field,["STD", std_field_name])
+    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, zonal_stat_table, stat_zone_field_ID,["STD", std_field_name])
 
     # ----------------------------------------------------------------------
-    # 5. RENAME JOINED FIELDS
+    # 6. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "STD", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, std_field_name, std_output_index_name, std_output_index_alias)
@@ -142,6 +155,9 @@ def minmax(val):
     # ----------------------------------------------------------------------
     # 7. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for item in [zonal_stat_table]:
         if arcpy.Exists(item):
@@ -151,7 +167,8 @@ def minmax(val):
                 arcpy.AddWarning(f"Could not delete intermediate dataset: {item}")
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("R_SD calculation completed successfully.")
 
