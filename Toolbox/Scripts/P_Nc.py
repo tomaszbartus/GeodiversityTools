@@ -2,7 +2,7 @@
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-14
+# 2026-01-02
 
 import arcpy
 
@@ -19,14 +19,15 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
-
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
+
+    stat_zone_field_ID = "StatZoneID"
     dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
     nc_table = f"{workspace_gdb}\\{prefix}_Nc"
-    stats_table = f"in_memory\\{prefix}_stats_temp"
+    stats_table = f"memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -82,42 +83,54 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. Assigning each point feature (geosite) the identifier (OBJECTID)
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
+
+    # ----------------------------------------------------------------------
+    # 2. Assigning each point feature (geosite) the identifier (OBJECTID)
     #    of the grid cell (statistical zone) in which it is located.
     #    The OBJECTID is assigned to the NEAR_FID attribute of the point feature class
     # ----------------------------------------------------------------------
     arcpy.analysis.Near(landscape_fl, grid_fl)
 
     # ----------------------------------------------------------------------
-    # 2. DISSOLVE points by category within each cell of the analytical grid
+    # 3. DISSOLVE points by category within each cell of the analytical grid
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Dissolving the landscape points by category...")
     arcpy.management.Dissolve(landscape_fl, dissolved_fc, [landscape_attr, "NEAR_FID"])
 
     # ----------------------------------------------------------------------
-    # 3. CALCULATE the frequency of point category groups within each cell of the analytical grid
+    # 4. CALCULATE the frequency of point category groups within each cell of the analytical grid
     # ----------------------------------------------------------------------
     arcpy.analysis.Frequency(dissolved_fc, nc_table, ["NEAR_FID"])
 
     # ----------------------------------------------------------------------
-    # 4. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
+    # 5. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
     # If MIN(Nc) == MAX(Nc), assign 0 to all rows
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing P_Nc (Min-Max)...")
 
-    # 4.1. Calculate statistics (min and max of Nc) using in_memory table
+    # 5.1. Calculate statistics (min and max of Nc) using in_memory table
     arcpy.analysis.Statistics(nc_table, stats_table, [["FREQUENCY", "MIN"], ["FREQUENCY", "MAX"]])
 
-    # 4.2. Read min/max values
+    # 5.2. Read min/max values
     with arcpy.da.SearchCursor(stats_table, ["MIN_FREQUENCY", "MAX_FREQUENCY"]) as cursor:
         for row in cursor:
             min_FREQUENCY = float(row[0])
             max_FREQUENCY = float(row[1])
 
-    # 4.3. Delete temporary in_memory table
+    # 5.3. Delete temporary in_memory table
     arcpy.management.Delete(stats_table)
 
-    # 4.4. Case 1 — all values identical → assign 0 to all records
+    # 5.4. Case 1 — all values identical → assign 0 to all records
     if min_FREQUENCY == max_FREQUENCY:
         arcpy.AddMessage(
             "All Nc values are identical (MIN = MAX). "
@@ -131,13 +144,13 @@ try:
         # Set all FREQUENCY_MIN_MAX values to 0
         arcpy.management.CalculateField(nc_table, "FREQUENCY_MIN_MAX", 0, "PYTHON3")
 
-    # 4.5. Case 2 — normal standardization
+    # 5.5. Case 2 — normal standardization
     else:
         arcpy.AddMessage("Performing Min–Max standardization of Nc...")
         arcpy.management.StandardizeField(nc_table, "FREQUENCY", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 5. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["FREQUENCY", "FREQUENCY_MIN_MAX"]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -151,20 +164,23 @@ try:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 6. JOIN RESULTS BACK TO THE GRID LAYER
+    # 7. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, nc_table, "NEAR_FID",["FREQUENCY", "FREQUENCY_MIN_MAX"])
+    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, nc_table, "NEAR_FID",["FREQUENCY", "FREQUENCY_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 7. RENAME JOINED FIELDS
+    # 8. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "FREQUENCY", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "FREQUENCY_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 8. CLEANUP
+    # 9. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     arcpy.management.DeleteField(landscape_fl, ["NEAR_FID", "NEAR_DIST"])
 
@@ -173,7 +189,8 @@ try:
             arcpy.management.Delete(fl)
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("P_Nc calculation completed successfully.")
 

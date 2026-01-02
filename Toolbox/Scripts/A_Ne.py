@@ -1,7 +1,7 @@
 # Geodiversity Tool A_Ne
 # Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-14
+# 2026-01-02
 
 import arcpy
 
@@ -17,15 +17,16 @@ try:
     grid_id_field = arcpy.GetParameterAsText(2)            # grid OBJECTID-like field
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = landscape_fl[:3].upper()
 
+    stat_zone_field_ID = "StatZoneID"
     intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
     mts_fc       = f"{workspace_gdb}\\{prefix}_Ne_MtS"
     ne_table     = f"{workspace_gdb}\\{prefix}_Ne_Tab"
-    stats_table = f"in_memory\\{prefix}_stats_temp"
+    stats_table = f"memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -82,18 +83,30 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
-    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ONLY_FID")
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 2. MULTIPART → SINGLEPART (create mts_fc - ..._Ne_MtS FC)
+    # 2. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
+    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL")
+
+    # ----------------------------------------------------------------------
+    # 3. MULTIPART → SINGLEPART (create mts_fc - ..._Ne_MtS FC)
     # ----------------------------------------------------------------------
     arcpy.management.MultipartToSinglepart(intersect_fc, mts_fc)
 
     # ----------------------------------------------------------------------
-    # 3. ADD Count FIELD and set = 1
+    # 4. ADD Count FIELD and set = 1
     # ----------------------------------------------------------------------
     arcpy.management.AddField(mts_fc, "Count", "SHORT")
 
@@ -103,31 +116,31 @@ try:
             cursor.updateRow(row)
 
     # ----------------------------------------------------------------------
-    # 4. STATISTICS: count elements per grid cell
+    # 5. STATISTICS: count elements per grid cell
     # ----------------------------------------------------------------------
-    case_field = f"FID_{arcpy.Describe(grid_fl).name}"
+    #case_field = f"FID_{arcpy.Describe(grid_fl).name}"
     #case_field = "FID_" + grid_fl
-    arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], case_field)
+    arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], stat_zone_field_ID)
 
     # ----------------------------------------------------------------------
-    # 5. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
+    # 6. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
     # If MIN(Ne) == MAX(Ne), assign 0 to all rows
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing A_Ne (Min-Max)...")
 
-    # 5.1. Calculate statistics (min and max of Ne) using in_memory table
+    # 6.1. Calculate statistics (min and max of Ne) using in_memory table
     arcpy.analysis.Statistics(ne_table, stats_table, [["SUM_Count", "MIN"], ["SUM_Count", "MAX"]])
 
-    # 5.2. Read min/max values
+    # 6.2. Read min/max values
     with arcpy.da.SearchCursor(stats_table, ["MIN_SUM_Count", "MAX_SUM_Count"]) as cursor:
         for row in cursor:
             min_SUM_Count = float(row[0])
             max_SUM_Count = float(row[1])
 
-    # 5.3. Delete temporary in_memory table
+    # 6.3. Delete temporary in_memory table
     arcpy.management.Delete(stats_table)
 
-    # 5.4. Case 1 — all values identical → assign 0 to all records
+    # 6.4. Case 1 — all values identical → assign 0 to all records
     if min_SUM_Count == max_SUM_Count:
         arcpy.AddMessage(
             "All Ne values are identical (MIN = MAX). "
@@ -141,13 +154,13 @@ try:
         # Set all SUM_Count_MIN_MAX values to 0
         arcpy.management.CalculateField(ne_table, "SUM_Count_MIN_MAX", 0, "PYTHON3")
 
-    # 5.5. Case 2 — normal standardization
+    # 6.5. Case 2 — normal standardization
     else:
         arcpy.AddMessage("Performing Min–Max standardization of Ne...")
         arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 7. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["SUM_COUNT", "SUM_COUNT_MIN_MAX"]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -161,27 +174,31 @@ try:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 7. JOIN RESULTS BACK TO THE GRID LAYER
+    # 8. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, grid_id_field, ne_table, case_field,["SUM_Count", "SUM_Count_MIN_MAX"])
+    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, ne_table, stat_zone_field_ID,["SUM_Count", "SUM_Count_MIN_MAX"])
 
     # ----------------------------------------------------------------------
-    # 8. RENAME JOINED FIELDS
+    # 9. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 9. CLEANUP
+    # 10. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for fc in (intersect_fc, mts_fc, ne_table):
         if arcpy.Exists(fc):
             arcpy.management.Delete(fc)
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("A_Ne calculation completed successfully.")
 

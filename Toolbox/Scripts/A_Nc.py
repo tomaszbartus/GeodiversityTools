@@ -2,7 +2,7 @@
 # Calculates the number of polygon feature categories of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2025-12-14
+# 2026-01-02
 
 import arcpy
 
@@ -19,14 +19,15 @@ try:
     grid_id_field = arcpy.GetParameterAsText(3)     # Grid ID (usually OBJECTID)
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
-
     prefix = landscape_attr[:3].upper()
-    dissolved_fl = f"in_memory\\{prefix}_Dis"
+
+    stat_zone_field_ID = "StatZoneID"
+    dissolved_fl = f"memory\\{prefix}_Dis"
     nc_fl = f"{workspace_gdb}\\{prefix}_Nc"
-    stats_table = f"in_memory\\{prefix}_stats_temp"
+    stats_table = f"memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -81,13 +82,25 @@ try:
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. DISSOLVE LANDSCAPE POLYGONS BY CATEGORY
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+
+    # Remove if exist in grid_fl
+    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
+        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
+    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
+    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
+
+    # ----------------------------------------------------------------------
+    # 2. DISSOLVE LANDSCAPE POLYGONS BY CATEGORY
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Dissolving the landscape polygons by category...")
     arcpy.management.Dissolve(landscape_fl, dissolved_fl, landscape_attr)
 
     # ----------------------------------------------------------------------
-    # 2. SPATIAL JOIN: count dissolved polygons intersecting each grid cell
+    # 3. SPATIAL JOIN: count dissolved polygons intersecting each grid cell
     # NOTE: field_mapping not required here (default behavior is correct)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Spatially joining landscape polygons with the analytical grid...")
@@ -97,24 +110,24 @@ try:
     )
 
     # -----------------------------------------------------------
-    # 3. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
+    # 4. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
     # If MIN(Nc) == MAX(Nc), assign 0 to all rows
     # -----------------------------------------------------------
     arcpy.AddMessage("Standardizing A_Nc (Min-Max)...")
 
-    # 3.1. Calculate statistics (min and max of Nc) using in_memory table
+    # 4.1. Calculate statistics (min and max of Nc) using in_memory table
     arcpy.analysis.Statistics(nc_fl, stats_table, [["Join_Count", "MIN"], ["Join_Count", "MAX"]])
 
-    # 3.2. Read min/max values
+    # 4.2. Read min/max values
     with arcpy.da.SearchCursor(stats_table, ["MIN_Join_Count", "MAX_Join_Count"]) as cursor:
         for row in cursor:
             min_Join_Count = float(row[0])
             max_Join_Count = float(row[1])
 
-    # 3.3. Delete temporary in_memory table
+    # 4.3. Delete temporary in_memory table
     arcpy.management.Delete(stats_table)
 
-    # 3.4. Case 1 — all values identical → assign 0 to all records
+    # 4.4. Case 1 — all values identical → assign 0 to all records
     if min_Join_Count == max_Join_Count:
         arcpy.AddMessage(
             "All Nc values are identical (MIN = MAX). "
@@ -128,13 +141,13 @@ try:
         # Set all Join_Count_MIN_MAX values to 0
         arcpy.management.CalculateField(nc_fl, "Join_Count_MIN_MAX", 0, "PYTHON3")
 
-    # 3.5. Case 2 — normal standardization
+    # 4.5. Case 2 — normal standardization
     else:
         arcpy.AddMessage("Performing Min–Max standardization of Join_Count...")
         arcpy.management.StandardizeField(nc_fl, "Join_Count", "MIN-MAX", 0, 1)
 
     # ----------------------------------------------------------------------
-    # 4. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 5. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
     # ----------------------------------------------------------------------
     fields_to_check = ["JOIN_COUNT", "JOIN_COUNT_MIN_MAX"]
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
@@ -148,23 +161,26 @@ try:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 5. JOIN RESULTS BACK TO THE GRID LAYER
+    # 6. JOIN RESULTS BACK TO THE GRID LAYER
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
     arcpy.management.JoinField(
-        grid_fl, grid_id_field, nc_fl, "TARGET_FID",
+        grid_fl, stat_zone_field_ID, nc_fl, stat_zone_field_ID,
         ["Join_Count", "Join_Count_MIN_MAX"]
     )
 
     # ----------------------------------------------------------------------
-    # 6. RENAME JOINED FIELDS
+    # 7. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "Join_Count", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "Join_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 7. CLEANUP
+    # 8. CLEANUP
     # ----------------------------------------------------------------------
+    arcpy.AddMessage("Removing temporary zone field...")
+    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
+
     arcpy.AddMessage("Cleaning intermediate datasets...")
     for fl in (dissolved_fl, nc_fl, stats_table):
         try:
@@ -174,7 +190,8 @@ try:
             arcpy.AddWarning(f"Could not delete intermediate dataset: {fl}")
 
     arcpy.ClearWorkspaceCache_management()
-    arcpy.management.Compact(workspace_gdb)
+    if workspace_gdb.endswith(".gdb"):
+        arcpy.management.Compact(workspace_gdb)
 
     arcpy.AddMessage("A_Nc calculation completed successfully.")
 
