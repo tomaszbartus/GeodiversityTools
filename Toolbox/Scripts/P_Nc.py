@@ -2,7 +2,7 @@
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-02
+# 2026-01-03
 
 import arcpy
 
@@ -16,7 +16,34 @@ try:
     landscape_fl = arcpy.GetParameterAsText(0)           # point feature layer
     landscape_attr = arcpy.GetParameterAsText(1)         # geosites category field
     grid_fl = arcpy.GetParameterAsText(2)                # grid layer
-    grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
+    grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the statistical zones
+    null_handling_mode = arcpy.GetParameterAsText(4)     # handling of empty grid cells
+
+    # ----------------------------------------------------------------------
+    # NULL HANDLING MODE
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage(f"Null handling mode: {null_handling_mode}")
+
+    use_zero_for_null = False
+
+    if null_handling_mode == "Replace NULL with 0 (MIN=0, MAX from Nc)":
+        use_zero_for_null = True
+    elif null_handling_mode == "Keep NULL (MIN/MAX from observed Nc only)":
+        use_zero_for_null = False
+    else:
+        arcpy.AddError("Unknown NULL handling mode selected.")
+        raise Exception("Invalid NULL handling mode.")
+
+    if use_zero_for_null:
+        arcpy.AddMessage(
+            "NULL handling mode: NULL values replaced with 0. "
+            "Standardization uses fixed MIN = 0 and MAX from observed Nc values."
+        )
+    else:
+        arcpy.AddMessage(
+            "NULL handling mode: NULL values preserved. "
+            "Standardization uses true MIN–MAX range of observed Nc values."
+        )
 
     # ----------------------------------------------------------------------
     # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
@@ -113,41 +140,109 @@ try:
     arcpy.analysis.Frequency(dissolved_fc, nc_table, ["NEAR_FID"])
 
     # ----------------------------------------------------------------------
-    # 5. SAFE MIN–MAX STANDARDIZATION FOR Nc (in_memory version)
-    # If MIN(Nc) == MAX(Nc), assign 0 to all rows
+    # 4.1. Completing the nc_table with missing grid cells assigned FREQUENCY = 0
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing P_Nc (Min-Max)...")
+    arcpy.AddMessage("Missing cells added to nc_table FREQUENCY=0...")
 
-    # 5.1. Calculate statistics (min and max of Nc) using in_memory table
-    arcpy.analysis.Statistics(nc_table, stats_table, [["FREQUENCY", "MIN"], ["FREQUENCY", "MAX"]])
-
-    # 5.2. Read min/max values
-    with arcpy.da.SearchCursor(stats_table, ["MIN_FREQUENCY", "MAX_FREQUENCY"]) as cursor:
+    # Retrieval of all analytical grid cell identifiers (StatZoneID)
+    all_near_fid = []
+    with arcpy.da.SearchCursor(grid_fl, [stat_zone_field_ID]) as cursor:
         for row in cursor:
-            min_FREQUENCY = float(row[0])
-            max_FREQUENCY = float(row[1])
+            all_near_fid.append(row[0])
 
-    # 5.3. Delete temporary in_memory table
-    arcpy.management.Delete(stats_table)
+    # Retrieval of all NEAR_FID grid cell identifiers present in nc_table (only cells containing geosites)
+    existing_near_fid = []
+    with arcpy.da.SearchCursor(nc_table, ["NEAR_FID"]) as cursor:
+        for row in cursor:
+            existing_near_fid.append(row[0])
 
-    # 5.4. Case 1 — all values identical → assign 0 to all records
-    if min_FREQUENCY == max_FREQUENCY:
-        arcpy.AddMessage(
-            "All Nc values are identical (MIN = MAX). "
-            "Skipping Min–Max standardization. Assigning 0 to FREQUENCY_MIN_MAX."
-        )
+    # Rows present in the analytical grid table but not present in nc_table
+    missing_near_fid = set(all_near_fid) - set(existing_near_fid)
 
-        # Add new field for standardized values
-        if "FREQUENCY_MIN_MAX" not in [f.name for f in arcpy.ListFields(nc_table)]:
-            arcpy.management.AddField(nc_table, "FREQUENCY_MIN_MAX", "DOUBLE")
+    # Adding missing rows to nc_table according to NULL handling mode
+    if missing_near_fid:
+        with arcpy.da.InsertCursor(nc_table, ["NEAR_FID", "FREQUENCY"]) as cursor:
+            for fid in missing_near_fid:
+                if use_zero_for_null:
+                    cursor.insertRow([fid, 0])  # replace missing with 0
+                else:
+                    cursor.insertRow([fid, None])  # keep as NULL
 
-        # Set all FREQUENCY_MIN_MAX values to 0
-        arcpy.management.CalculateField(nc_table, "FREQUENCY_MIN_MAX", 0, "PYTHON3")
+    arcpy.AddMessage(f"Added {len(missing_near_fid)} missing records with FREQUENCY = 0")
 
-    # 5.5. Case 2 — normal standardization
+    # ----------------------------------------------------------------------
+    # 5. SAFE MIN–MAX STANDARDIZATION FOR Nc
+    # Statistical zones without geosites → Std_P_Nc = 0
+    # MIN for standardization is fixed at 0 (no geosites in the cell)
+    # MAX for standardization is taken from the actual observed values
+    # ----------------------------------------------------------------------
+    arcpy.AddMessage("Standardizing P_Nc (Min-Max) with proper handling of empty cells...")
+
+    # 5.1. Handle NULL FREQUENCY values according to user choice
+    with arcpy.da.UpdateCursor(nc_table, ["FREQUENCY"]) as cursor:
+        for row in cursor:
+            if row[0] is None:
+                if use_zero_for_null:
+                    row[0] = 0  # user-selected: NULL → 0
+                    cursor.updateRow(row)
+                else:
+                    pass  # user-selected: keep NULL
+
+    # 5.2. Calculate MIN and MAX for standardization according to user choice
+    frequencies = []
+
+    with arcpy.da.SearchCursor(nc_table, ["FREQUENCY"]) as cursor:
+        for row in cursor:
+            if row[0] is not None:
+                frequencies.append(row[0])
+
+    if not frequencies:
+        min_FREQUENCY = 0
+        max_FREQUENCY = 0
     else:
-        arcpy.AddMessage("Performing Min–Max standardization of Nc...")
-        arcpy.management.StandardizeField(nc_table, "FREQUENCY", "MIN-MAX", 0, 1)
+        if use_zero_for_null:
+            min_FREQUENCY = 0
+            max_FREQUENCY = max(frequencies)
+        else:
+            min_FREQUENCY = min(frequencies)
+            max_FREQUENCY = max(frequencies)
+
+    # 5.3. Add field for standardized values (if it does not exist yet)
+    if "FREQUENCY_MIN_MAX" not in [f.name for f in arcpy.ListFields(nc_table)]:
+        arcpy.management.AddField(nc_table, "FREQUENCY_MIN_MAX", "DOUBLE")
+
+    # 5.4. Apply Min–Max standardization according to selected mode
+    with arcpy.da.UpdateCursor(nc_table, ["FREQUENCY", "FREQUENCY_MIN_MAX"]) as cursor:
+
+        if max_FREQUENCY == min_FREQUENCY:
+            # Degenerate case – no variability
+            for row in cursor:
+                row[1] = 0
+                cursor.updateRow(row)
+
+        else:
+            for row in cursor:
+                value = row[0]
+
+                if value is None:
+                    # Preserve NULLs if user chose so
+                    if use_zero_for_null:
+                        value = 0
+                    else:
+                        row[1] = None
+                        cursor.updateRow(row)
+                        continue
+
+                if use_zero_for_null:
+                    # MIN fixed at 0
+                    row[1] = value / max_FREQUENCY
+                else:
+                    # Classical Min–Max
+                    row[1] = (value - min_FREQUENCY) / (max_FREQUENCY - min_FREQUENCY)
+
+                cursor.updateRow(row)
+
+    arcpy.AddMessage("Standardization completed.")
 
     # ----------------------------------------------------------------------
     # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
