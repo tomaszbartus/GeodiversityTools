@@ -2,7 +2,7 @@
 # The script calculates the number of point features (e.g. geosites) categories of a selected
 # landscape feature within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-03
+# 2026-01-06
 
 import arcpy
 
@@ -54,7 +54,6 @@ try:
     stat_zone_field_ID = "StatZoneID"
     dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
     nc_table = f"{workspace_gdb}\\{prefix}_Nc"
-    stats_table = f"memory\\{prefix}_stats_temp"
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -164,7 +163,7 @@ try:
         with arcpy.da.InsertCursor(nc_table, ["NEAR_FID", "FREQUENCY"]) as cursor:
             for fid in missing_near_fid:
                 if use_zero_for_null:
-                    cursor.insertRow([fid, 0])  # replace missing with 0
+                    cursor.insertRow([fid, 0])     # replace missing with 0
                 else:
                     cursor.insertRow([fid, None])  # keep as NULL
 
