@@ -84,7 +84,13 @@ GeodiversityTools/
 
 ## Installation
 
-See **[Docs/installation.md](Docs/installation.md)** for full installation instructions.
+👉 See **[Docs/installation.md](Docs/installation.md)** for full installation instructions.
+
+---
+
+## Manual
+
+👉 See **[Docs/GeodiversityTools.pdf](Docs/GeodiversityTools.pdf)** for method and indexes documentation.
 
 ---
 
