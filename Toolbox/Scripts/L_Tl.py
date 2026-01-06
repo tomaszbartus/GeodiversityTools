@@ -2,7 +2,7 @@
 # Calculates the total length of line features of a selected landscape feature
 # within each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-02
+# 2026-01-05
 
 import arcpy
 
@@ -16,15 +16,42 @@ try:
     landscape_fl = arcpy.GetParameterAsText(0)      # Line feature layer
     grid_fl = arcpy.GetParameterAsText(1)           # Analytical grid layer
     grid_id_field = arcpy.GetParameterAsText(2)     # Grid ID (usually OBJECTID)
+    null_handling_mode = arcpy.GetParameterAsText(3)  # handling of empty grid cells
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
+    # NULL HANDLING MODE
+    # ----------------------------------------------------------------------
+    use_zero_for_null = False
+
+    arcpy.AddMessage(f"Null handling mode: {null_handling_mode}")
+
+    if null_handling_mode == "Replace NULL with 0 (MIN=0, MAX from L_Tl)":
+        use_zero_for_null = True
+    elif null_handling_mode == "Keep NULL (MIN/MAX from observed L_Tl only)":
+        use_zero_for_null = False
+    else:
+        arcpy.AddError("Unknown NULL handling mode selected.")
+        raise Exception("Invalid NULL handling mode.")
+
+    if use_zero_for_null:
+        arcpy.AddMessage(
+            "NULL handling mode: NULL values will be replaced with 0. "
+            "Standardization uses fixed MIN = 0 and MAX from observed Lines_Length values."
+        )
+    else:
+        arcpy.AddMessage(
+            "NULL handling mode: NULL values preserved. "
+            "Standardization uses true MIN–MAX range of observed Lines_Length values."
+        )
+
+    # ----------------------------------------------------------------------
+    # WORKSPACE, PREFIX, INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
     prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
 
     stat_zone_field_ID = "StatZoneID"
-    intersect_fc = f"{workspace_gdb}\\{prefix}_Int"
+    intersect_fc = f"memory\\{prefix}_Int"
     dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
 
     # ----------------------------------------------------------------------
@@ -36,7 +63,7 @@ try:
     std_output_index_alias = f"Std_{prefix}_L_Tl"
 
     # ----------------------------------------------------------------------
-    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # REMOVE LOCKS
     # ----------------------------------------------------------------------
     try:
         arcpy.AddMessage("Removing existing locks...")
@@ -46,16 +73,9 @@ try:
         pass
 
     # ----------------------------------------------------------------------
-    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
+    # DELETE INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
-    intermediate_items = [
-        intersect_fc,
-        dissolved_fc
-    ]
-
-    arcpy.AddMessage("Checking for leftover intermediate datasets...")
-
-    for item in intermediate_items:
+    for item in [intersect_fc, dissolved_fc]:
         if arcpy.Exists(item):
             try:
                 arcpy.management.Delete(item)
@@ -64,88 +84,114 @@ try:
                 arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
+    # CHECK FOR EXISTING OUTPUT FIELDS
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Checking if the output fields already exist...")
     existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
-
-    field_raw = output_index_name.upper()
-    field_std = std_output_index_name.upper()
-
-    if field_raw in existing_fields or field_std in existing_fields:
+    if output_index_name.upper() in existing_fields or std_output_index_name.upper() in existing_fields:
         arcpy.AddError(
             f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
-            f"in the analytical grid attribute table.\n"
-            f"Remove these fields before re-running the tool."
+            "in the analytical grid. Remove them before re-running the tool."
         )
         raise Exception("Field name conflict – remove existing fields and try again.")
 
     # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
+    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD
     # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
-
-    # Remove if exist in grid_fl
     if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
         arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
     arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
     arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 2. INTERSECT LANDSCAPE LINES WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
+    # 2. INTERSECT LINES WITH GRID
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Intersecting landscape lines with the analytical grid...")
-    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL")
+    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc, "ALL")
 
     # ----------------------------------------------------------------------
-    # 3. DISSOLVE LINES
+    # 3. DISSOLVE LINES BY ZONE
     # ----------------------------------------------------------------------
-    grid_fid_field = f"FID_{arcpy.Describe(grid_fl).baseName}"
     arcpy.management.Dissolve(intersect_fc, dissolved_fc, stat_zone_field_ID)
 
     # ----------------------------------------------------------------------
-    # 4. CREATE Lines_Length FIELD AND COPY Shape_Length VALUES INTO IT
-    #    (Shape_Length is a system attribute and cannot be removed in step 5)
+    # 4. CREATE ATTRIBUTE FIELDS (RAW + STANDARDIZED)
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Creating Lines_Length field...")
+    arcpy.AddMessage("Creating Lines_Length and Lines_Length_MIN_MAX fields...")
+
     arcpy.management.AddField(dissolved_fc, "Lines_Length", "DOUBLE")
     arcpy.management.CalculateField(dissolved_fc, "Lines_Length", "!Shape_Length!", "PYTHON3")
 
-    # ----------------------------------------------------------------------
-    # 5. STANDARDIZE L_Tl (MIN-MAX)
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing L_Tl (Min-Max)...")
-    arcpy.management.StandardizeField(dissolved_fc, "Lines_Length", "MIN-MAX", 0, 1)
+    arcpy.management.AddField(dissolved_fc, "Lines_Length_MIN_MAX", "DOUBLE")
 
     # ----------------------------------------------------------------------
-    # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 5. MIN–MAX STANDARDIZATION
     # ----------------------------------------------------------------------
-    fields_to_check = ["LINES_LENGTH", "LINES_LENGTH_MIN_MAX"]
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    lines_values = [row[0] for row in arcpy.da.SearchCursor(dissolved_fc, ["Lines_Length"]) if row[0] is not None]
 
-    # Checking whether any fields need to be removed at all
-    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+    if not lines_values:
+        min_lines = 0
+        max_lines = 0
+        arcpy.AddWarning("No valid Lines_Length values found. MIN/MAX set to 0.")
+    else:
+        min_lines = 0 if use_zero_for_null else min(lines_values)
+        max_lines = max(lines_values)
+        arcpy.AddMessage(f"Using MIN={min_lines} and MAX={max_lines} for standardization.")
 
-    if fields_to_remove:
-        arcpy.AddMessage("Removing old join fields from the grid...")
-        for old_field in fields_to_remove:
+    with arcpy.da.UpdateCursor(dissolved_fc, ["Lines_Length", "Lines_Length_MIN_MAX"]) as cursor:
+        for row in cursor:
+            val = row[0]
+            if val is None:
+                row[0] = 0 if use_zero_for_null else None
+                row[1] = 0 if use_zero_for_null else None
+            else:
+                if max_lines == min_lines:
+                    row[1] = 0
+                else:
+                    row[1] = val / max_lines if use_zero_for_null else (val - min_lines) / (max_lines - min_lines)
+            cursor.updateRow(row)
+
+    arcpy.AddMessage("Min–Max standardization completed successfully.")
+
+    # ----------------------------------------------------------------------
+    # 6. REMOVE OLD JOIN FIELDS FROM GRID
+    # ----------------------------------------------------------------------
+    for old_field in ["LINES_LENGTH", "LINES_LENGTH_MIN_MAX"]:
+        if old_field in [f.name.upper() for f in arcpy.ListFields(grid_fl)]:
             arcpy.management.DeleteField(grid_fl, old_field)
 
     # ----------------------------------------------------------------------
-    # 7. JOIN RESULTS BACK TO THE GRID LAYER
+    # 7. JOIN RESULTS BACK TO GRID
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, dissolved_fc, stat_zone_field_ID,["Lines_Length", "Lines_Length_MIN_MAX"])
+    arcpy.management.JoinField(
+        grid_fl,
+        stat_zone_field_ID,
+        dissolved_fc,
+        stat_zone_field_ID,
+        ["Lines_Length", "Lines_Length_MIN_MAX"]
+    )
 
     # ----------------------------------------------------------------------
-    # 8. RENAME JOINED FIELDS
+    # 8. REPLACE NULLS WITH 0 IN GRID (OPTIONAL)
+    # ----------------------------------------------------------------------
+    if use_zero_for_null:
+        arcpy.AddMessage("Replacing NULL values with 0 in the analytical grid fields...")
+        with arcpy.da.UpdateCursor(grid_fl, ["Lines_Length", "Lines_Length_MIN_MAX"]) as cursor:
+            for row in cursor:
+                if row[0] is None:
+                    row[0] = 0
+                if row[1] is None:
+                    row[1] = 0
+                cursor.updateRow(row)
+
+    # ----------------------------------------------------------------------
+    # 9. RENAME JOINED FIELDS
     # ----------------------------------------------------------------------
     arcpy.management.AlterField(grid_fl, "Lines_Length", output_index_name, output_index_alias)
     arcpy.management.AlterField(grid_fl, "Lines_Length_MIN_MAX", std_output_index_name, std_output_index_alias)
 
     # ----------------------------------------------------------------------
-    # 9. CLEANUP
+    # 10. CLEANUP
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Removing temporary zone field...")
     arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
