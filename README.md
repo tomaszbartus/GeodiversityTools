@@ -1,7 +1,7 @@
 # Geodiversity Tools for ArcGIS Pro
 
 **Author:** Tomasz Bartuś  
-**Version:** 0.1.0 (development)  
+**Version:** 0.1.0  
 **ArcGIS Pro:** 3.x
 
 ## Overview
@@ -18,7 +18,7 @@ The workflows support analyses such as:
 - vector-based landscape metrics:
   - diversity of polygonal (A) features based on the number of elements (A_Ne) and number of categories (A_Nc)
   - diversity of polygonal (A) features based on Shannon-Weaver diversity index (A_SHDI)
-  - diversity of linear (L) features based on the total length of features (L_L)
+  - diversity of linear (L) features based on the total length of features (L_Tl)
   - diversity of point (P) features based on the number of elements (P_Ne) and number of categories (P_Nc)
 - raster-based (R) landscape metrics:
   - diversity of continuous regionalized variables based on standard deviation (R_SD)
@@ -79,21 +79,12 @@ GeodiversityTools/
 
 - **ArcGIS Pro 3.x**
 - **Python 3.x (ArcGIS Pro environment)**
-- Spatial Analyst extension (for raster operations)
 
 ---
 
 ## Installation
 
 See **[Docs/installation.md](Docs/installation.md)** for full installation instructions.
-
----
-
-## Usage Examples
-
-Examples of running the tools in ArcGIS Pro and Python can be found in:
-
-👉 **[Docs/usage_examples.md](Docs/usage_examples.md)**
 
 ---
 
@@ -108,7 +99,7 @@ Test data have been prepared for testing diversity indices. For more information
 ## Citation
 
 If you use these tools in research, please cite appropriately:
-Bartuś, T. (2025). Geodiversity Tools for ArcGIS Pro (version 1.0). https://github.com/tomaszbartus/GeodiversityTools.
+Bartuś, T. (2026). Geodiversity Tools for ArcGIS Pro (version 0.1.0). https://github.com/tomaszbartus/GeodiversityTools.
 
 ---
 
