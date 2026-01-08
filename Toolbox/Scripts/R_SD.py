@@ -24,8 +24,17 @@ try:
     # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
-    raster_base = arcpy.Describe(landscape_ras).baseName
-    prefix = raster_base[:3].upper()
+    #raster_base = arcpy.Describe(landscape_ras).baseName
+    #prefix = raster_base[:3].upper()
+
+    # Get metadata for the input raster
+    desc_land = arcpy.Describe(landscape_ras)  # get raster metadata
+    base_name = desc_land.name  # raster name without path
+    # Create a safe prefix using the first 3 letters in uppercase
+    prefix = arcpy.ValidateTableName(
+        base_name[:3].upper(),  # first 3 letters in uppercase
+        workspace_gdb  # validate for the target geodatabase
+    )
 
     stat_zone_field_ID = "StatZoneID"
     zonal_stat_table = fr"memory\{prefix}_ZONAL_STAT"
@@ -34,34 +43,21 @@ try:
     # ---------------------------------------------------------------------------
     # CHECK SPATIAL INTERSECTION OF EXTENTS
     # ---------------------------------------------------------------------------
-    # Recalculate extents
-    arcpy.AddMessage("Recalculating feature class extents...")
-    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
+    # Recalculate extent ONLY for the grid (vector)
+    arcpy.AddMessage("Recalculating feature class extent for the grid...")
     arcpy.management.RecalculateFeatureClassExtent(grid_fl)
 
-    # Check if input layers contain features
-    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
-        arcpy.AddError("Landscape features layer contains no features.")
-        raise arcpy.ExecuteError
-
-    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
-        arcpy.AddError("Analytical grid layer contains no features.")
-        raise arcpy.ExecuteError
-
-    # Get updated extents
-    ext_land = arcpy.Describe(landscape_fl).extent
+    # Describe extents
+    ext_ras = arcpy.Describe(landscape_ras).extent
     ext_grid = arcpy.Describe(grid_fl).extent
 
-    # Check spatial intersection of extents
-    # Two extents intersect if they are NOT disjoint
-    if ext_land.disjoint(ext_grid):
+    # Check if raster and grid intersect
+    if ext_ras.disjoint(ext_grid):
         arcpy.AddError(
-            "The landscape features layer does not spatially overlap "
-            "with the analytical grid. Analysis cannot be performed."
+            "The raster layer does not spatially overlap with the analytical grid."
         )
         raise arcpy.ExecuteError
 
-    # Inform user
     arcpy.AddMessage("Input validation passed.")
 
     # ----------------------------------------------------------------------
