@@ -2,7 +2,7 @@
 # Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
 # in each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2025-12-30
+# Date: 2026-01-08
 
 import arcpy
 
@@ -30,6 +30,39 @@ try:
     stat_zone_field_ID = "StatZoneID"
     zonal_stat_table = fr"memory\{prefix}_ZONAL_STAT"
     stats_table = fr"memory\{prefix}_STD_STATS"
+
+    # ---------------------------------------------------------------------------
+    # CHECK SPATIAL INTERSECTION OF EXTENTS
+    # ---------------------------------------------------------------------------
+    # Recalculate extents
+    arcpy.AddMessage("Recalculating feature class extents...")
+    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
+    arcpy.management.RecalculateFeatureClassExtent(grid_fl)
+
+    # Check if input layers contain features
+    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
+        arcpy.AddError("Landscape features layer contains no features.")
+        raise arcpy.ExecuteError
+
+    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
+        arcpy.AddError("Analytical grid layer contains no features.")
+        raise arcpy.ExecuteError
+
+    # Get updated extents
+    ext_land = arcpy.Describe(landscape_fl).extent
+    ext_grid = arcpy.Describe(grid_fl).extent
+
+    # Check spatial intersection of extents
+    # Two extents intersect if they are NOT disjoint
+    if ext_land.disjoint(ext_grid):
+        arcpy.AddError(
+            "The landscape features layer does not spatially overlap "
+            "with the analytical grid. Analysis cannot be performed."
+        )
+        raise arcpy.ExecuteError
+
+    # Inform user
+    arcpy.AddMessage("Input validation passed.")
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES

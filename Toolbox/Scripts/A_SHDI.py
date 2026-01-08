@@ -2,7 +2,7 @@
 # Calculates the Shannon–Weaver diversity index (SHDI) for a selected landscape feature (polygon feature class)
 # in each polygon of an analytical grid.
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2026-01-02
+# Date: 2026-01-08
 
 import arcpy
 import math
@@ -29,6 +29,39 @@ try:
     out_mts_fc       = f"{workspace_gdb}\\{prefix}_MtS"
     freq_table       = f"{workspace_gdb}\\{prefix}_Freq"
     shdi_table       = f"{workspace_gdb}\\{prefix}_SHDI"
+
+    # ---------------------------------------------------------------------------
+    # CHECK SPATIAL INTERSECTION OF EXTENTS
+    # ---------------------------------------------------------------------------
+    # Recalculate extents
+    arcpy.AddMessage("Recalculating feature class extents...")
+    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
+    arcpy.management.RecalculateFeatureClassExtent(grid_fl)
+
+    # Check if input layers contain features
+    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
+        arcpy.AddError("Landscape features layer contains no features.")
+        raise arcpy.ExecuteError
+
+    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
+        arcpy.AddError("Analytical grid layer contains no features.")
+        raise arcpy.ExecuteError
+
+    # Get updated extents
+    ext_land = arcpy.Describe(landscape_fl).extent
+    ext_grid = arcpy.Describe(grid_fl).extent
+
+    # Check spatial intersection of extents
+    # Two extents intersect if they are NOT disjoint
+    if ext_land.disjoint(ext_grid):
+        arcpy.AddError(
+            "The landscape features layer does not spatially overlap "
+            "with the analytical grid. Analysis cannot be performed."
+        )
+        raise arcpy.ExecuteError
+
+    # Inform user
+    arcpy.AddMessage("Input validation passed.")
 
     # ----------------------------------------------------------------------
     # OUTPUT FIELD NAMES
@@ -103,14 +136,27 @@ try:
     arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
     arcpy.analysis.Intersect([landscape_fl, grid_fl], out_intersect_fc, "ALL", "", "INPUT")
 
+    arcpy.AddMessage(">>> INTERSECT FINISHED")
+
+    if not arcpy.Exists(out_intersect_fc):
+        raise Exception("Intersect output was not created.")
+
+    count = int(arcpy.management.GetCount(out_intersect_fc)[0])
+    arcpy.AddMessage(f">>> Intersect feature count: {count}")
+
+    if count == 0:
+        raise Exception("Intersect output is empty.")
+
     # ----------------------------------------------------------------------
     # 3. MULTIPART → SINGLEPART
     # ----------------------------------------------------------------------
     arcpy.management.MultipartToSinglepart(out_intersect_fc, out_mts_fc)
+    arcpy.AddMessage(">>> MULTIPART TO SINGLEPART FINISHED")
 
     # ----------------------------------------------------------------------
     # 4. STATISTICS OF AREA
     # ----------------------------------------------------------------------
+    arcpy.AddMessage(">>> STARTING STATISTICS")
     arcpy.analysis.Statistics(
         out_mts_fc,
         freq_table,
