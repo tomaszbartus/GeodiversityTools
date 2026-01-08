@@ -22,7 +22,13 @@ try:
     # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(landscape_fl).path
-    prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
+    #prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
+    desc_land = arcpy.Describe(landscape_fl)        # get the layer's metadata
+    base_name = desc_land.name                      # FC name without the path
+    prefix = arcpy.ValidateTableName(
+        base_name[:3].upper(),                      # first 3 letters in uppercase
+        workspace_gdb                               # validate for the target geodatabase
+    )
 
     stat_zone_field_ID = "StatZoneID"
     intersect_fc = f"{workspace_gdb}\\{prefix}_Hu_Int"
