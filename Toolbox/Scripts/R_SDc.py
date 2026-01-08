@@ -175,7 +175,6 @@ try:
     # ----------------------------------------------------------------------
     arcpy.management.AddField(zonal_stat_table, "R", "DOUBLE")
     arcpy.management.AddField(zonal_stat_table, "R_Mn", "DOUBLE")
-    #arcpy.management.AddField(zonal_stat_table, "SDc", "DOUBLE", field_alias=output_index_alias)
     arcpy.management.AddField(zonal_stat_table, "SDc", "DOUBLE")
 
     # ----------------------------------------------------------------------
@@ -215,7 +214,6 @@ try:
 
     # 10.2 Add standardized field
     std_field_name = "SDc_MM"
-    #arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE", field_alias=std_output_index_alias)
     arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE")
 
     if max_sdc == min_sdc:
@@ -235,16 +233,6 @@ def minmax(val):
             "PYTHON3",
             code_block
         )
-
-    # ----------------------------------------------------------------------
-    # 10.3 DEBUG: SPRAWDZENIE DOKŁADNYCH NAZW PÓL W TABELI WYNIKOWEJ
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("--- DEBUG: Sprawdzanie nazw pól w zonal_stat_table ---")
-    debug_fields = arcpy.ListFields(zonal_stat_table)
-    for f in debug_fields:
-        arcpy.AddMessage(f"Pole: '{f.name}' (Alias: '{f.aliasName}', Typ: {f.type})")
-    arcpy.AddMessage("-----------------------------------------------------")
-
 
     # ----------------------------------------------------------------------
     # 11. REMOVE OLD JOIN FIELDS FROM GRID (if any)
