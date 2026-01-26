@@ -1,13 +1,16 @@
 # Geodiversity Tool P_Hu
 # Calculates the unit entropy (Hu) point feature layer within each polygon of the analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-08
+# 2026-01-26
 
 import arcpy
 import math
 
 # Allow overwrite
 arcpy.env.overwriteOutput = True
+# Prevent Z-coordinate and M-coordinate inheritance in feature classes
+arcpy.env.outputZFlag = "Disabled"
+arcpy.env.outputMFlag = "Disabled"
 
 try:
     # ----------------------------------------------------------------------
@@ -35,6 +38,19 @@ try:
     tabulate_intersection_table = f"{workspace_gdb}\\{prefix}_Hu_Ti_Tbl"
     Hu_table = f"{workspace_gdb}\\{prefix}_Hu_Tbl"
     stats_table = f"memory\\{prefix}_stats_temp"
+
+    # ----------------------------------------------------------------------
+    # VALIDATE DATA FORMATS (BLOCK SHAPEFILES)
+    # ----------------------------------------------------------------------
+    def check_gdb_feature(fc):
+        desc = arcpy.Describe(fc)
+        if desc.dataType == "ShapeFile" or desc.catalogPath.lower().endswith(".shp"):
+            arcpy.AddError(f"Error: Layer '{desc.name}' is a Shapefile.")
+            arcpy.AddError("Geodiversity Tools require GDB feature classes.")
+            raise arcpy.ExecuteError
+
+    check_gdb_feature(landscape_fl)
+    check_gdb_feature(grid_fl)
 
     # ---------------------------------------------------------------------------
     # CHECK SPATIAL INTERSECTION OF EXTENTS
