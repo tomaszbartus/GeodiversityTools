@@ -1,7 +1,7 @@
 # Geodiversity Tools for ArcGIS Pro
 
 **Author:** Tomasz Bartuś  
-**Version:** 0.1.0  
+**Version:** 0.2.0  
 **ArcGIS Pro:** 3.x
 
 ## Overview
@@ -21,8 +21,7 @@ The workflows support analyses such as:
   - diversity of linear (L) features based on the total length of features (L_Tl)
   - diversity of point (P) features based on the number of elements (P_Ne) and number of categories (P_Nc)
 - raster-based (R) landscape metrics:
-  - diversity of continuous regionalized variables based on standard deviation (R_SD)
-  - diversity of continuous regionalized variables based on circular standard deviation (R_SDc)
+  - diversity of continuous regionalized variables based on: standard deviation (R_SD), circular standard deviation (R_SDc) and Steinhaus vertical relief index (R_M)
 
 These tools are intended for landscape analysis, geodiversity assessment, environmental planning, and scientific research.
 
@@ -70,6 +69,7 @@ GeodiversityTools/
 - Clean Python implementation using `arcpy` and Spatial Analyst
 - Support for analyses of regionalized discrete and continuous variables
 - Support for grid-based analysis and raster–polygon overlays
+- Support for file geodatabase (`.gdb`) feature classes; shapefiles (`.shp`) are not supported.
 - Integrated output standardization of geodiversity metrics, ensuring their comparability for cross-grid and cross-region analyses
 - Designed for reproducible scientific workflows
 
@@ -105,7 +105,7 @@ Test data have been prepared for testing diversity indices. For more information
 ## Citation
 
 If you use these tools in research, please cite appropriately:
-Bartuś, T. (2026). Geodiversity Tools for ArcGIS Pro (version 0.1.0). https://github.com/tomaszbartus/GeodiversityTools.
+Bartuś, T. (2026). Geodiversity Tools for ArcGIS Pro (version 0.2.0). https://github.com/tomaszbartus/GeodiversityTools.
 
 ---
 
