@@ -1,8 +1,8 @@
 # Geodiversity Tool R_M (memory)
-# Calculates the vertical relief index (R_M) (Steinhaus, 1947) for a selected landscape feature (raster)
+# Calculates the Steinhaus Vertical Relief Index (R_M) (Steinhaus, 1947) for a selected landscape feature (raster)
 # within each polygon of an analytical grid
 # Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2026-01-28
+# Date: 2026-02-02
 
 import arcpy
 import numpy as np
@@ -692,7 +692,6 @@ finally:
             r"memory\border_points_assigned_z",
             r"memory\border_points_assigned_z_nonnull",
             r"memory\vertical_relief",
-            r"memory\vertical_relief_copy"  # na wypadek gdybyś testował w pamięci
         ]
 
         for item in intermediate_memory_data:
