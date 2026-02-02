@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.0] - 2026-02-02
+### Added
+- New Index: Introduced the Steinhaus Vertical Relief Index (`R_M`) for measuring landform energy and vertical diversity using a scale-independent, additive approach based on Steinhaus (1947).
+- Spatial Overlap Validation: Added a pre-processing check to ensure that the landscape feature layer and the analytical grid have a common spatial extent.
+- Data Format Enforcement: Added a restriction to prevent the use of shapefiles, ensuring all operations are performed within Geodatabases (`.gdb`) for data integrity.
+
+
+### Fixed
+- Coordinate System Inheritance: Prevented the automatic inheritance of Z- and M-coordinates in output feature classes, resolving potential geometry compatibility issues.
+- Field Name Conflicts: Fixed an issue where the tool would fail if output fields already existed in the attribute table.
+- Resource Cleanup: Improved the "intermediate data" removal process to ensure memory is cleared even if the script execution is interrupted.
+
+### Changed
+- Performance Overhaul: Re-engineered core logic using In-Memory Dictionary Mapping. Processing time for large datasets (~4,300 zones) was reduced from 40 minutes to under 60 seconds.
+- Dynamic Attribute Naming: Improved the prefix generation logic for partial criteria attributes, making them more intuitive and based on source vector layer names.
+- Enhanced Spatial Logic: Refined the assignment of extreme points to grid cells using optimized spatial join and axial validation.
+
+---
+
 ## [0.1.0] - 2026-01-07
 ### Added
 - Initial official release of Geodiversity Tools
