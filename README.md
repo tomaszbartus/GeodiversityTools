@@ -32,8 +32,8 @@ These tools are intended for landscape analysis, geodiversity assessment, enviro
 GeodiversityTools/
 │
 ├── Docs/
+│ ├── GeodiversityTool.pdf
 │ ├── installation.md
-│ ├── usage_examples.md
 │ ├── licence.md
 │ └── ...
 │
@@ -51,6 +51,7 @@ GeodiversityTools/
 │ │ ├── A_Ne.png
 │ │ ├── A_SHDI.png
 │ │ └── ...
+│ │
 │ ├── Scripts/
 │ │ ├── A_Nc.py
 │ │ ├── A_Ne.py
@@ -58,6 +59,7 @@ GeodiversityTools/
 │ │ └── ...
 │ └── GeodiversityTools.atbx
 │
+├── CHANGELOG.md
 └── README.md
 
 ```
