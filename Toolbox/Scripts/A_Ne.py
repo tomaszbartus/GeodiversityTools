@@ -1,269 +1,195 @@
-# Geodiversity Tool A_Ne
-# Calculates the number of landscape polygon feature elements within each polygon of an analytical grid
-# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-26
+# coding=utf-8
+"""
+Geodiversity Tool: A_Ne (Number of Landscape Elements / Patches)
+Calculates the number of individual landscape patches per grid cell
+and creates a new, standalone output feature class with user-defined fields.
+"""
 
 import arcpy
+import geodiversity_core as core
 
-# Allow overwrite
 arcpy.env.overwriteOutput = True
-# Prevent Z-coordinate and M-coordinate inheritance in feature classes
 arcpy.env.outputZFlag = "Disabled"
 arcpy.env.outputMFlag = "Disabled"
 
+# Ścieżki tymczasowe deklarujemy przed try, aby finally mógł je bezpiecznie
+# posprzątać również wtedy, gdy błąd wystąpi przed ich utworzeniem.
+stat_zone_field_ID = "StatZoneID"
+intersect_fc = "memory\\temp_ne_intersect"
+mts_fc = "memory\\temp_ne_mts"
+ne_table = "memory\\temp_ne_table"
+working_grid_memory = None
+
 try:
-    # ----------------------------------------------------------------------
-    # INPUT PARAMETERS FROM TOOL
-    # ----------------------------------------------------------------------
-    landscape_fl = arcpy.GetParameterAsText(0)             # polygon FL
-    grid_fl = arcpy.GetParameterAsText(1)                  # analytical grid FL
-    grid_id_field = arcpy.GetParameterAsText(2)            # grid OBJECTID-like field
+    # --- INPUT PARAMETERS ---
+    landscape_fl = arcpy.GetParameterAsText(0)   # 0 - Input landscape feature class
+    grid_fl = arcpy.GetParameterAsText(1)        # 1 - Analytical grid feature class
+    grid_id_field = arcpy.GetParameterAsText(2)  # 2 - Analytical grid identification field
+    null_handling_mode = arcpy.GetParameterAsText(3)  # 3 - Handling of empty grid cells
+
+    # --- USER-DEFINED OUTPUT PARAMETERS ---
+    output_fc_path = arcpy.GetParameterAsText(4)   # 4 - Output feature class path (DE Feature Class, Output)
+
+    # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
+    default_raw_field = "R_Ne_cecha_A"
+    default_std_field = "SR_Ne_cecha_A"
+
+    output_raw_field = (arcpy.GetParameterAsText(5) or "").strip()  # 5 - Output partial criteria field name (String, Input)
+    output_std_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output std. partial criteria field name (String, Input)
+
+    if not output_raw_field:
+        output_raw_field = default_raw_field
+        arcpy.AddMessage(f"Raw output field not provided; using default '{default_raw_field}'.")
+
+    if not output_std_field:
+        output_std_field = default_std_field
+        arcpy.AddMessage(f"Standardized output field not provided; using default '{default_std_field}'.")
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
+    # OBSŁUGA PUSTYCH PÓL SIATKI W STANDARYZACJI MIN–MAX
     # ----------------------------------------------------------------------
-    workspace_gdb = arcpy.Describe(landscape_fl).path
-    #prefix = arcpy.Describe(landscape_fl).name[:3].upper()
-    desc_land = arcpy.Describe(landscape_fl)        # get the layer's metadata
-    base_name = desc_land.name                      # FC name without the path
-    prefix = arcpy.ValidateTableName(
-        base_name[:3].upper(),                      # first 3 letters in uppercase
-        workspace_gdb                               # validate for the target geodatabase
-    )
-
-    stat_zone_field_ID = "StatZoneID"
-    intersect_fc = f"{workspace_gdb}\\{prefix}_Ne_Int"
-    mts_fc       = f"{workspace_gdb}\\{prefix}_Ne_MtS"
-    ne_table     = f"{workspace_gdb}\\{prefix}_Ne_Tab"
-    stats_table = f"memory\\{prefix}_stats_temp"
-
-    # ----------------------------------------------------------------------
-    # VALIDATE DATA FORMATS (BLOCK SHAPEFILES)
-    # ----------------------------------------------------------------------
-    def check_gdb_feature(fc):
-        desc = arcpy.Describe(fc)
-        if desc.dataType == "ShapeFile" or desc.catalogPath.lower().endswith(".shp"):
-            arcpy.AddError(f"Error: Layer '{desc.name}' is a Shapefile.")
-            arcpy.AddError("Geodiversity Tools require GDB feature classes.")
-            raise arcpy.ExecuteError
-
-    check_gdb_feature(landscape_fl)
-    check_gdb_feature(grid_fl)
-
-    # ---------------------------------------------------------------------------
-    # CHECK SPATIAL INTERSECTION OF EXTENTS
-    # ---------------------------------------------------------------------------
-    # Recalculate extents
-    arcpy.AddMessage("Recalculating feature class extents...")
-    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
-    arcpy.management.RecalculateFeatureClassExtent(grid_fl)
-
-    # Check if input layers contain features
-    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
-        arcpy.AddError("Landscape features layer contains no features.")
-        raise arcpy.ExecuteError
-
-    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
-        arcpy.AddError("Analytical grid layer contains no features.")
-        raise arcpy.ExecuteError
-
-    # Get updated extents
-    ext_land = arcpy.Describe(landscape_fl).extent
-    ext_grid = arcpy.Describe(grid_fl).extent
-
-    # Check spatial intersection of extents
-    # Two extents intersect if they are NOT disjoint
-    if ext_land.disjoint(ext_grid):
-        arcpy.AddError(
-            "The landscape features layer does not spatially overlap "
-            "with the analytical grid. Analysis cannot be performed."
+    include_zero = core.resolve_empty_cell_mode(null_handling_mode)
+    if include_zero:
+        arcpy.AddMessage(
+            "Empty-cell handling: 0 included in the Min–Max range (MIN = 0), "
+            "MAX from observed patch counts."
         )
-        raise arcpy.ExecuteError
+    else:
+        arcpy.AddMessage(
+            "Empty-cell handling: empty cells ignored in standardization, "
+            "MIN and MAX from observed patch counts."
+        )
 
-    # Inform user
-    arcpy.AddMessage("Input validation passed.")
+    # 1. Walidacja danych wejściowych
+    arcpy.AddMessage("Validating input feature classes...")
+    core.check_gdb_feature(grid_fl)
+    core.check_gdb_feature(landscape_fl)
 
-    # ----------------------------------------------------------------------
-    # OUTPUT FIELD NAMES
-    # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_ANe"
-    output_index_alias = f"{prefix}_A_Ne"
-    std_output_index_name = f"{prefix}_ANe_MM"
-    std_output_index_alias = f"Std_{prefix}_A_Ne"
+    # 2. Przygotowanie bezpiecznej kopii strefowej w pamięci RAM (oryginalna siatka nietknięta!)
+    working_grid_memory = core.prepare_grid_zone_copy(grid_fl, grid_id_field, stat_zone_field_ID)
 
-    # ----------------------------------------------------------------------
-    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
-    # ----------------------------------------------------------------------
-    try:
-        arcpy.AddMessage("Removing existing locks...")
-        arcpy.management.RemoveLocks(landscape_fl)
-        arcpy.management.RemoveLocks(grid_fl)
-    except:
-        pass
-
-    # ----------------------------------------------------------------------
-    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
-    # ----------------------------------------------------------------------
-    intermediate_items = [
-        intersect_fc,
-        mts_fc,
-        ne_table
-    ]
-
-    arcpy.AddMessage("Checking for leftover intermediate datasets...")
-
-    for item in intermediate_items:
+    # Czyszczenie śmieci w pamięci (jeśli pozostały po poprzednich sesjach)
+    for item in (intersect_fc, mts_fc, ne_table):
         if arcpy.Exists(item):
-            try:
-                arcpy.management.Delete(item)
-                arcpy.AddMessage(f"Removed leftover dataset: {item}")
-            except:
-                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
+            arcpy.management.Delete(item)
 
-    # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Checking if the output fields already exist...")
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    # 3. Przecięcie poligonów krajobrazu z siatką analityczną.
+    #    Przy wyjściu poligonowym Intersect zapisuje wyłącznie przecięcia
+    #    o dodatniej powierzchni. Samo dotknięcie granicy komórki daje linię
+    #    lub punkt, więc nie jest liczone jako poligon wewnątrz komórki.
+    #    Uwaga: jeśli poligony krajobrazu nachodzą na siebie, Intersect pocię
+    #    je wzdłuż wspólnych granic — wynik liczy wtedy fragmenty, a nie
+    #    poligony. Warstwa krajobrazu powinna być rozłączna.
+    arcpy.AddMessage("Intersecting landscape polygons with analytical grid...")
+    arcpy.analysis.Intersect([landscape_fl, working_grid_memory], intersect_fc, "ALL")
 
-    field_raw = output_index_name.upper()
-    field_std = std_output_index_name.upper()
-
-    if field_raw in existing_fields or field_std in existing_fields:
+    # Brak jakiegokolwiek przecięcia oznacza, że krajobraz nie pokrywa siatki.
+    # Zamiast cicho zapisywać same zera zgłaszamy błąd — spójnie z A_Nc,
+    # które przerywa pracę, gdy nie ma żadnej kategorii do policzenia.
+    if int(arcpy.management.GetCount(intersect_fc)[0]) == 0:
         arcpy.AddError(
-            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
-            f"in the analytical grid attribute table.\n"
-            f"Please remove these fields before re-running the tool."
+            "No landscape features intersect the analytical grid. "
+            "Check that both inputs overlap and use the same coordinate system."
         )
-        raise Exception("Field name conflict – remove existing fields and try again.")
+        raise arcpy.ExecuteError
 
-    # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
-
-    # Remove if exist in grid_fl
-    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
-    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
-
-    # ----------------------------------------------------------------------
-    # 2. INTERSECT LANDSCAPE POLYGONS WITH GRID FL (creates intersect_fc containing FID_<grid> for grouping)
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Intersecting landscape polygons with the analytical grid...")
-    arcpy.analysis.Intersect([landscape_fl, grid_fl], intersect_fc,"ALL")
-
-    # ----------------------------------------------------------------------
-    # 3. MULTIPART → SINGLEPART (create mts_fc - ..._Ne_MtS FC)
-    # ----------------------------------------------------------------------
+    # 4. Rozbicie geometrii wieloczęściowych na pojedyncze poligony.
+    #    Po przecięciu jeden poligon może składać się z kilku kawałków; każdy
+    #    kawałek jest osobnym poligonem wewnątrz komórki i jest liczony osobno.
+    arcpy.AddMessage("Converting multipart elements to singlepart...")
     arcpy.management.MultipartToSinglepart(intersect_fc, mts_fc)
 
-    # ----------------------------------------------------------------------
-    # 4. ADD Count FIELD and set = 1
-    # ----------------------------------------------------------------------
-    arcpy.management.AddField(mts_fc, "Count", "SHORT")
+    # Pole robocze do zliczania. Nazwa "Count" mogłaby kolidować z polem
+    # odziedziczonym z danych wejściowych, dlatego używamy unikalnej nazwy
+    # i usuwamy ją, gdyby jednak istniała w kopii tymczasowej.
+    count_field = "NE_CNT"
+    mts_field_names = {f.name.lower() for f in arcpy.ListFields(mts_fc)}
+    if count_field.lower() in mts_field_names:
+        arcpy.management.DeleteField(mts_fc, count_field)
 
-    with arcpy.da.UpdateCursor(mts_fc, ["Count"]) as cursor:
+    arcpy.management.AddField(mts_fc, count_field, "SHORT")
+    with arcpy.da.UpdateCursor(mts_fc, [count_field]) as cursor:
         for row in cursor:
             row[0] = 1
             cursor.updateRow(row)
 
-    # ----------------------------------------------------------------------
-    # 5. STATISTICS: count elements per grid cell
-    # ----------------------------------------------------------------------
-    #case_field = f"FID_{arcpy.Describe(grid_fl).name}"
-    #case_field = "FID_" + grid_fl
-    arcpy.analysis.Statistics(mts_fc, ne_table, [["Count", "SUM"]], stat_zone_field_ID)
+    # 5. Zliczenie poligonów w każdej komórce siatki
+    arcpy.AddMessage("Calculating summary statistics per grid cell...")
+    arcpy.analysis.Statistics(mts_fc, ne_table, [[count_field, "SUM"]], stat_zone_field_ID)
 
-    # ----------------------------------------------------------------------
-    # 6. SAFE MIN–MAX STANDARDIZATION FOR Ne (in_memory version)
-    # If MIN(Ne) == MAX(Ne), assign 0 to all rows
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing A_Ne (Min-Max)...")
+    # 6. Normalizacja Min-Max liczby elementów.
+    #    Puste komórki nie trafiają do tabeli Statistics, więc w trybie
+    #    "Empty cells = 0" dolny kraniec zakresu wynosi 0, a w trybie
+    #    pomijającym puste pola zakres wyznaczają wyłącznie pola z danymi.
+    arcpy.AddMessage("Calculating Min-Max standardization for patch counts...")
+    sum_field = f"SUM_{count_field}"
+    std_field_temp = f"{sum_field}_MM"
 
-    # 6.1. Calculate statistics (min and max of Ne) using in_memory table
-    arcpy.analysis.Statistics(ne_table, stats_table, [["SUM_Count", "MIN"], ["SUM_Count", "MAX"]])
+    fields_in_table = [f.name for f in arcpy.ListFields(ne_table)]
+    if std_field_temp not in fields_in_table:
+        arcpy.management.AddField(ne_table, std_field_temp, "DOUBLE")
 
-    # 6.2. Read min/max values
-    with arcpy.da.SearchCursor(stats_table, ["MIN_SUM_Count", "MAX_SUM_Count"]) as cursor:
+    counts = [row[0] for row in arcpy.da.SearchCursor(ne_table, [sum_field]) if row[0] is not None]
+    if not counts:
+        # Zabezpieczenie: Statistics nie powinno zwrócić pustej tabeli po
+        # wcześniejszym sprawdzeniu GetCount(intersect_fc), ale nie chcemy
+        # dzielić przez zero ani cicho zapisywać samych zer.
+        arcpy.AddError("No patch counts were calculated for the analytical grid.")
+        raise arcpy.ExecuteError
+
+    min_val, max_val = core.min_max_bounds(counts, include_zero)
+    arcpy.AddMessage(f"Using MIN={min_val} and MAX={max_val} for standardization.")
+
+    # Wypełnienie pola znormalizowanego
+    with arcpy.da.UpdateCursor(ne_table, [sum_field, std_field_temp]) as cursor:
         for row in cursor:
-            min_SUM_Count = float(row[0])
-            max_SUM_Count = float(row[1])
+            row[1] = core.standardize_min_max(row[0], min_val, max_val)
+            cursor.updateRow(row)
 
-    # 6.3. Delete temporary in_memory table
-    arcpy.management.Delete(stats_table)
+    # 7. Bezpieczny zapis do NOWEJ klasy obiektów pod wskazaną ścieżką
+    core.safe_write_to_new_feature_class(
+        grid_fl=grid_fl,
+        grid_id_field=grid_id_field,
+        result_table=ne_table,
+        raw_value_field=sum_field,
+        std_value_field=std_field_temp,
+        output_fc_path=output_fc_path,
+        output_raw_field=output_raw_field,
+        output_std_field=output_std_field,
+        # Chronimy również warstwę krajobrazu przed nadpisaniem przez output.
+        protected_inputs=[landscape_fl]
+    )
 
-    # 6.4. Case 1 — all values identical → assign 0 to all records
-    if min_SUM_Count == max_SUM_Count:
-        arcpy.AddMessage(
-            "All Ne values are identical (MIN = MAX). "
-            "Skipping Min–Max standardization. Assigning 0 to SUM_Count_MIN_MAX."
-        )
-
-        # Add new field for standardized values
-        if "SUM_Count_MIN_MAX" not in [f.name for f in arcpy.ListFields(ne_table)]:
-            arcpy.management.AddField(ne_table, "SUM_Count_MIN_MAX", "DOUBLE")
-
-        # Set all SUM_Count_MIN_MAX values to 0
-        arcpy.management.CalculateField(ne_table, "SUM_Count_MIN_MAX", 0, "PYTHON3")
-
-    # 6.5. Case 2 — normal standardization
-    else:
-        arcpy.AddMessage("Performing Min–Max standardization of Ne...")
-        arcpy.management.StandardizeField(ne_table, "SUM_Count", "MIN-MAX", 0, 1)
-
-    # ----------------------------------------------------------------------
-    # 7. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
-    # ----------------------------------------------------------------------
-    fields_to_check = ["SUM_COUNT", "SUM_COUNT_MIN_MAX"]
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
-
-    # Checking whether any fields need to be removed at all
-    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
-
-    if fields_to_remove:
-        arcpy.AddMessage("Removing old join fields from the grid...")
-        for old_field in fields_to_remove:
-            arcpy.management.DeleteField(grid_fl, old_field)
-
-    # ----------------------------------------------------------------------
-    # 8. JOIN RESULTS BACK TO THE GRID LAYER
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, ne_table, stat_zone_field_ID,["SUM_Count", "SUM_Count_MIN_MAX"])
-
-    # ----------------------------------------------------------------------
-    # 9. RENAME JOINED FIELDS
-    # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "SUM_Count", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "SUM_Count_MIN_MAX", std_output_index_name, std_output_index_alias)
-
-    # ----------------------------------------------------------------------
-    # 10. CLEANUP
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Removing temporary zone field...")
-    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.AddMessage("Cleaning intermediate datasets...")
-    for fc in (intersect_fc, mts_fc, ne_table):
-        if arcpy.Exists(fc):
-            arcpy.management.Delete(fc)
-
-    arcpy.ClearWorkspaceCache_management()
-    if workspace_gdb.endswith(".gdb"):
-        arcpy.management.Compact(workspace_gdb)
-
-    arcpy.AddMessage("A_Ne calculation completed successfully.")
+    arcpy.AddMessage("Tool A_Ne finished successfully.")
 
 except arcpy.ExecuteError:
-    arcpy.AddError("Geoprocessing error occurred:")
+    # Błąd geoprzetwarzania — przekazujemy komunikaty narzędzia i przerywamy pracę.
     arcpy.AddError(arcpy.GetMessages(2))
+    raise
 
 except Exception as e:
-    arcpy.AddError("Python error occurred:")
-    arcpy.AddError(str(e))
+    # Inny błąd Pythona — dodajemy czytelny komunikat i również przerywamy pracę,
+    # aby narzędzie w ArcGIS Pro zgłosiło status "Failed", a nie "Completed".
+    arcpy.AddError(f"Error in A_Ne execution: {str(e)}")
+    raise
 
 finally:
+    # Końcowe czyszczenie zasobów tymczasowych — wykonuje się również po błędzie.
+    # Delete usuwa datasety z memory\, a ClearWorkspaceCache zwalnia cache/locki.
+    arcpy.AddMessage("Cleaning up temporary memory layers...")
+
+    # "memory\\temp_working_grid" jest dodawany jawnie, ponieważ core tworzy go
+    # pod stałą nazwą — nawet jeśli prepare_grid_zone_copy przerwie się w połowie.
+    temp_items = {intersect_fc, mts_fc, ne_table, working_grid_memory, "memory\\temp_working_grid"}
+
+    for item in temp_items:
+        if not item:
+            continue
+        try:
+            if arcpy.Exists(item):
+                arcpy.management.Delete(item)
+        except Exception as e:
+            # Nie przerywamy sprzątania, jeśli pojedynczy dataset jest zablokowany.
+            arcpy.AddWarning(f"Could not delete temporary dataset '{item}': {e}")
+
     arcpy.ClearWorkspaceCache_management()

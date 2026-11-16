@@ -1,346 +1,173 @@
-# Geodiversity Tool P_Nc
-# The script calculates the number of point features (e.g. geosites) categories of a selected
-# landscape feature within each polygon of the analytical grid
-# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-26
+# coding=utf-8
+"""
+Geodiversity Tool: P_Nc (Number of Point Features Categories)
+Calculates the number of point feature categories of a selected landscape feature
+within each polygon of an analytical grid and creates a new, standalone output feature class.
+Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+Refactored for GeodiversityTools Core Architecture
+"""
 
 import arcpy
+import geodiversity_core as core
 
-# Allow overwrite
 arcpy.env.overwriteOutput = True
-# Prevent Z-coordinate and M-coordinate inheritance in feature classes
 arcpy.env.outputZFlag = "Disabled"
 arcpy.env.outputMFlag = "Disabled"
 
 try:
-    # ----------------------------------------------------------------------
-    # INPUT PARAMETERS FROM TOOL
-    # ----------------------------------------------------------------------
-    landscape_fl = arcpy.GetParameterAsText(0)           # point feature layer
-    landscape_attr = arcpy.GetParameterAsText(1)         # geosites category field
-    grid_fl = arcpy.GetParameterAsText(2)                # grid layer
-    grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the statistical zones
-    null_handling_mode = arcpy.GetParameterAsText(4)     # handling of empty grid cells
+    # --- INPUT PARAMETERS ---
+    landscape_fl = arcpy.GetParameterAsText(0)             # 0 - Point feature layer
+    landscape_attr = arcpy.GetParameterAsText(1)           # 1 - Geosites category field
+    grid_fl = arcpy.GetParameterAsText(2)                  # 2 - Grid layer
+    grid_id_field = arcpy.GetParameterAsText(3)            # 3 - Grid ID field
+    null_handling_mode = arcpy.GetParameterAsText(4)       # 4 - Handling of empty grid cells
+
+    # --- USER-DEFINED OUTPUT PARAMETERS ---
+    output_fc_path = arcpy.GetParameterAsText(5)  # 5 - Output feature class path (DE Feature Class, Output)
+
+    # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
+    default_raw_field = "R_Nc_cecha_P"
+    default_std_field = "SR_Nc_cecha_P"
+
+    output_raw_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output partial criteria field name (String, Input)
+    output_std_field = (arcpy.GetParameterAsText(7) or "").strip()  # 7 - Output std. partial criteria field name (String, Input)
+
+    if not output_raw_field:
+        output_raw_field = default_raw_field
+        arcpy.AddMessage(f"Raw output field not provided; using default '{default_raw_field}'.")
+
+    if not output_std_field:
+        output_std_field = default_std_field
+        arcpy.AddMessage(f"Standardized output field not provided; using default '{default_std_field}'.")
 
     # ----------------------------------------------------------------------
-    # NULL HANDLING MODE
+    # OBSŁUGA PUSTYCH PÓL SIATKI W STANDARYZACJI MIN–MAX
     # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Null handling mode: {null_handling_mode}")
-
-    use_zero_for_null = False
-
-    if null_handling_mode == "Replace NULL with 0 (MIN=0, MAX from Nc)":
-        use_zero_for_null = True
-    elif null_handling_mode == "Keep NULL (MIN/MAX from observed Nc only)":
-        use_zero_for_null = False
-    else:
-        arcpy.AddError("Unknown NULL handling mode selected.")
-        raise Exception("Invalid NULL handling mode.")
-
-    if use_zero_for_null:
+    include_zero = core.resolve_empty_cell_mode(null_handling_mode)
+    if include_zero:
         arcpy.AddMessage(
-            "NULL handling mode: NULL values replaced with 0. "
-            "Standardization uses fixed MIN = 0 and MAX from observed Nc values."
+            "Empty-cell handling: 0 included in the Min–Max range (MIN = 0), "
+            "MAX from observed Nc values."
         )
     else:
         arcpy.AddMessage(
-            "NULL handling mode: NULL values preserved. "
-            "Standardization uses true MIN–MAX range of observed Nc values."
+            "Empty-cell handling: empty cells ignored in standardization, "
+            "MIN and MAX from observed Nc values."
         )
 
-    # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
-    # ----------------------------------------------------------------------
-    workspace_gdb = arcpy.Describe(landscape_fl).path
-    #prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
-    desc_land = arcpy.Describe(landscape_fl)        # get the layer's metadata
-    base_name = desc_land.name                      # FC name without the path
-    prefix = arcpy.ValidateTableName(
-        base_name[:3].upper(),                      # first 3 letters in uppercase
-        workspace_gdb                               # validate for the target geodatabase
-    )
-
+    # Lokalizacje tymczasowe w pamięci RAM
     stat_zone_field_ID = "StatZoneID"
-    dissolved_fc = f"{workspace_gdb}\\{prefix}_Dis"
-    nc_table = f"{workspace_gdb}\\{prefix}_Nc"
+    dissolved_fc = "memory\\temp_pnc_dissolved"
+    nc_table = "memory\\temp_pnc_table"
+    stats_table = "memory\\temp_pnc_stats"
 
-    # ----------------------------------------------------------------------
-    # VALIDATE DATA FORMATS (BLOCK SHAPEFILES)
-    # ----------------------------------------------------------------------
-    def check_gdb_feature(fc):
-        desc = arcpy.Describe(fc)
-        if desc.dataType == "ShapeFile" or desc.catalogPath.lower().endswith(".shp"):
-            arcpy.AddError(f"Error: Layer '{desc.name}' is a Shapefile.")
-            arcpy.AddError("Geodiversity Tools require GDB feature classes.")
-            raise arcpy.ExecuteError
+    # 1. Walidacja danych wejściowych
+    arcpy.AddMessage("Validating input feature classes...")
+    core.check_gdb_feature(grid_fl)
+    core.check_gdb_feature(landscape_fl)
 
-    check_gdb_feature(landscape_fl)
-    check_gdb_feature(grid_fl)
+    # 2. Przygotowanie bezpiecznej kopii strefowej w pamięci RAM (oryginalna siatka nietknięta!)
+    working_grid_memory = core.prepare_grid_zone_copy(grid_fl, grid_id_field, stat_zone_field_ID)
 
-    # ---------------------------------------------------------------------------
-    # CHECK SPATIAL INTERSECTION OF EXTENTS
-    # ---------------------------------------------------------------------------
-    # Recalculate extents
-    arcpy.AddMessage("Recalculating feature class extents...")
-    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
-    arcpy.management.RecalculateFeatureClassExtent(grid_fl)
-
-    # Check if input layers contain features
-    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
-        arcpy.AddError("Landscape features layer contains no features.")
-        raise arcpy.ExecuteError
-
-    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
-        arcpy.AddError("Analytical grid layer contains no features.")
-        raise arcpy.ExecuteError
-
-    # Get updated extents
-    ext_land = arcpy.Describe(landscape_fl).extent
-    ext_grid = arcpy.Describe(grid_fl).extent
-
-    # Check spatial intersection of extents
-    # Two extents intersect if they are NOT disjoint
-    if ext_land.disjoint(ext_grid):
-        arcpy.AddError(
-            "The landscape features layer does not spatially overlap "
-            "with the analytical grid. Analysis cannot be performed."
-        )
-        raise arcpy.ExecuteError
-
-    # Inform user
-    arcpy.AddMessage("Input validation passed.")
-
-    # ----------------------------------------------------------------------
-    # OUTPUT FIELD NAMES
-    # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_PNc"
-    output_index_alias = f"{prefix}_P_Nc"
-    std_output_index_name = f"{prefix}_PNc_MM"
-    std_output_index_alias = f"Std_{prefix}_P_Nc"
-
-    # ----------------------------------------------------------------------
-    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
-    # ----------------------------------------------------------------------
-    try:
-        arcpy.AddMessage("Removing existing locks...")
-        arcpy.management.RemoveLocks(landscape_fl)
-        arcpy.management.RemoveLocks(grid_fl)
-    except:
-        pass
-
-    # ----------------------------------------------------------------------
-    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
-    # ----------------------------------------------------------------------
-    intermediate_items = [
-        dissolved_fc,
-        nc_table
-    ]
-
-    arcpy.AddMessage("Checking for leftover intermediate datasets...")
-
-    for item in intermediate_items:
+    # Czyszczenie śmieci po poprzednich uruchomieniach
+    for item in (dissolved_fc, nc_table, stats_table):
         if arcpy.Exists(item):
-            try:
-                arcpy.management.Delete(item)
-                arcpy.AddMessage(f"Removed leftover dataset: {item}")
-            except:
-                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
+            arcpy.management.Delete(item)
 
-    # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Checking if the output fields already exist...")
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    # 3. Kopia punktów w pamięci RAM. Near dopisuje do danych wejściowych pola
+    #    NEAR_FID/NEAR_DIST, dlatego pracujemy na kopii — klasa użytkownika
+    #    pozostaje nietknięta, a nieudany przebieg nie zostawia w niej śmieci.
+    arcpy.AddMessage("Copying landscape points to the in-memory workspace...")
+    temp_points_memory = "memory\\temp_pnc_points"
+    if arcpy.Exists(temp_points_memory):
+        arcpy.management.Delete(temp_points_memory)
 
-    field_raw = output_index_name.upper()
-    field_std = std_output_index_name.upper()
+    #    Obiekty bez kategorii (NULL lub pusty ciąg) są pomijane — nie tworzą
+    #    odrębnej klasy (zob. rozdział 3.8.1). Kopiujemy od razu przefiltrowany
+    #    zbiór, więc dalsze kroki nie widzą rekordów bez kategorii.
+    arcpy.AddMessage("Filtering out points with NULL category value...")
+    landscape_attr = core.resolve_field_name(
+        landscape_fl, landscape_attr, "Landscape category attribute"
+    )
+    non_null_lyr = core.make_category_layer(
+        landscape_fl, landscape_attr, "temp_pnc_category_lyr"
+    )
+    arcpy.management.CopyFeatures(non_null_lyr, temp_points_memory)
 
-    if field_raw in existing_fields or field_std in existing_fields:
-        arcpy.AddError(
-            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
-            f"in the analytical grid attribute table.\n"
-            f"Remove these fields before re-running the tool."
-        )
-        raise Exception("Field name conflict – remove existing fields and try again.")
+    # 4. Near Analysis (powiązanie punktów z roboczą kopią siatki w RAM)
+    arcpy.AddMessage("Performing Near analysis between points and analytical grid...")
+    arcpy.analysis.Near(temp_points_memory, working_grid_memory)
 
-    # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
+    # 5. Dissolve points by category within each cell
+    arcpy.AddMessage("Dissolving landscape points by category...")
+    arcpy.management.Dissolve(temp_points_memory, dissolved_fc, [landscape_attr, "NEAR_FID"])
 
-    # Remove if exist in grid_fl
-    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
-    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
-
-    # ----------------------------------------------------------------------
-    # 2. Assigning each point feature (geosite) the identifier (OBJECTID)
-    #    of the grid cell (statistical zone) in which it is located.
-    #    The OBJECTID is assigned to the NEAR_FID attribute of the point feature class
-    # ----------------------------------------------------------------------
-    arcpy.analysis.Near(landscape_fl, grid_fl)
-
-    # ----------------------------------------------------------------------
-    # 3. DISSOLVE points by category within each cell of the analytical grid
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Dissolving the landscape points by category...")
-    arcpy.management.Dissolve(landscape_fl, dissolved_fc, [landscape_attr, "NEAR_FID"])
-
-    # ----------------------------------------------------------------------
-    # 4. CALCULATE the frequency of point category groups within each cell of the analytical grid
-    # ----------------------------------------------------------------------
+    # 6. Frequency analysis
+    arcpy.AddMessage("Calculating frequency of point categories per grid cell...")
     arcpy.analysis.Frequency(dissolved_fc, nc_table, ["NEAR_FID"])
 
-    # ----------------------------------------------------------------------
-    # 4.1. Completing the nc_table with missing grid cells assigned FREQUENCY = 0
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Missing cells added to nc_table FREQUENCY=0...")
+    # Uzupełnienie tabeli o brakujące komórki siatki
+    arcpy.AddMessage("Completing table with missing grid cells...")
+    all_near_fid = [row[0] for row in arcpy.da.SearchCursor(working_grid_memory, [stat_zone_field_ID]) if row[0] is not None]
+    existing_near_fid = [row[0] for row in arcpy.da.SearchCursor(nc_table, ["NEAR_FID"]) if row[0] is not None]
 
-    # Retrieval of all analytical grid cell identifiers (StatZoneID)
-    all_near_fid = []
-    with arcpy.da.SearchCursor(grid_fl, [stat_zone_field_ID]) as cursor:
-        for row in cursor:
-            all_near_fid.append(row[0])
-
-    # Retrieval of all NEAR_FID grid cell identifiers present in nc_table (only cells containing geosites)
-    existing_near_fid = []
-    with arcpy.da.SearchCursor(nc_table, ["NEAR_FID"]) as cursor:
-        for row in cursor:
-            existing_near_fid.append(row[0])
-
-    # Rows present in the analytical grid table but not present in nc_table
     missing_near_fid = set(all_near_fid) - set(existing_near_fid)
 
-    # Adding missing rows to nc_table according to NULL handling mode
     if missing_near_fid:
         with arcpy.da.InsertCursor(nc_table, ["NEAR_FID", "FREQUENCY"]) as cursor:
             for fid in missing_near_fid:
-                if use_zero_for_null:
-                    cursor.insertRow([fid, 0])     # replace missing with 0
-                else:
-                    cursor.insertRow([fid, None])  # keep as NULL
+                cursor.insertRow([fid, 0])
+        arcpy.AddMessage(f"Added {len(missing_near_fid)} missing records.")
 
-    arcpy.AddMessage(f"Added {len(missing_near_fid)} missing records with FREQUENCY = 0")
+    # 7. Min–Max Standardization for P_Nc
+    arcpy.AddMessage("Standardizing P_Nc (Min–Max)...")
 
-    # ----------------------------------------------------------------------
-    # 5. SAFE MIN–MAX STANDARDIZATION FOR Nc
-    # Statistical zones without geosites → Std_P_Nc = 0
-    # MIN for standardization is fixed at 0 (no geosites in the cell)
-    # MAX for standardization is taken from the actual observed values
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing P_Nc (Min-Max) with proper handling of empty cells...")
+    frequencies = [row[0] for row in arcpy.da.SearchCursor(nc_table, ["FREQUENCY"]) if row[0] is not None]
 
-    # 5.1. Handle NULL FREQUENCY values according to user choice
-    with arcpy.da.UpdateCursor(nc_table, ["FREQUENCY"]) as cursor:
+    # FREQUENCY = 0 może oznaczać wyłącznie puste pole (pole z obiektami ma
+    # co najmniej jedną kategorię), dlatego w trybie pomijającym puste pola
+    # odrzucamy zera z zakresu standaryzacji.
+    range_values = frequencies if include_zero else [v for v in frequencies if v > 0]
+    min_FREQUENCY, max_FREQUENCY = core.min_max_bounds(range_values, include_zero)
+    arcpy.AddMessage(f"Using MIN={min_FREQUENCY} and MAX={max_FREQUENCY} for standardization.")
+
+    std_field_name = "FREQUENCY_MIN_MAX"
+    if std_field_name not in [f.name for f in arcpy.ListFields(nc_table)]:
+        arcpy.management.AddField(nc_table, std_field_name, "DOUBLE")
+
+    with arcpy.da.UpdateCursor(nc_table, ["FREQUENCY", std_field_name]) as cursor:
         for row in cursor:
-            if row[0] is None:
-                if use_zero_for_null:
-                    row[0] = 0  # user-selected: NULL → 0
-                    cursor.updateRow(row)
-                else:
-                    pass  # user-selected: keep NULL
-
-    # 5.2. Calculate MIN and MAX for standardization according to user choice
-    frequencies = []
-
-    with arcpy.da.SearchCursor(nc_table, ["FREQUENCY"]) as cursor:
-        for row in cursor:
-            if row[0] is not None:
-                frequencies.append(row[0])
-
-    if not frequencies:
-        min_FREQUENCY = 0
-        max_FREQUENCY = 0
-    else:
-        if use_zero_for_null:
-            min_FREQUENCY = 0
-            max_FREQUENCY = max(frequencies)
-        else:
-            min_FREQUENCY = min(frequencies)
-            max_FREQUENCY = max(frequencies)
-
-    # 5.3. Add field for standardized values (if it does not exist yet)
-    if "FREQUENCY_MIN_MAX" not in [f.name for f in arcpy.ListFields(nc_table)]:
-        arcpy.management.AddField(nc_table, "FREQUENCY_MIN_MAX", "DOUBLE")
-
-    # 5.4. Apply Min–Max standardization according to selected mode
-    with arcpy.da.UpdateCursor(nc_table, ["FREQUENCY", "FREQUENCY_MIN_MAX"]) as cursor:
-
-        if max_FREQUENCY == min_FREQUENCY:
-            # Degenerate case – no variability
-            for row in cursor:
-                row[1] = 0
-                cursor.updateRow(row)
-
-        else:
-            for row in cursor:
-                value = row[0]
-
-                if value is None:
-                    # Preserve NULLs if user chose so
-                    if use_zero_for_null:
-                        value = 0
-                    else:
-                        row[1] = None
-                        cursor.updateRow(row)
-                        continue
-
-                if use_zero_for_null:
-                    # MIN fixed at 0
-                    row[1] = value / max_FREQUENCY
-                else:
-                    # Classical Min–Max
-                    row[1] = (value - min_FREQUENCY) / (max_FREQUENCY - min_FREQUENCY)
-
-                cursor.updateRow(row)
+            row[1] = core.standardize_min_max(row[0], min_FREQUENCY, max_FREQUENCY)
+            cursor.updateRow(row)
 
     arcpy.AddMessage("Standardization completed.")
 
-    # ----------------------------------------------------------------------
-    # 6. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
-    # ----------------------------------------------------------------------
-    fields_to_check = ["FREQUENCY", "FREQUENCY_MIN_MAX"]
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    # 8. Zapis wyników do NOWEJ klasy obiektów (mapowanie po NEAR_FID jako StatZoneID)
+    # Ponieważ safe_write oczekuje pola o nazwie "StatZoneID", dodajemy tymczasowe pole do nc_table
+    if "StatZoneID" not in [f.name for f in arcpy.ListFields(nc_table)]:
+        arcpy.management.AddField(nc_table, "StatZoneID", "LONG")
+    arcpy.management.CalculateField(nc_table, "StatZoneID", "!NEAR_FID!", "PYTHON3")
 
-    # Checking whether any fields need to be removed at all
-    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
+    core.safe_write_to_new_feature_class(
+        grid_fl=grid_fl,
+        grid_id_field=grid_id_field,
+        result_table=nc_table,
+        raw_value_field="FREQUENCY",
+        std_value_field=std_field_name,
+        output_fc_path=output_fc_path,
+        output_raw_field=output_raw_field,
+        output_std_field=output_std_field
+    )
 
-    if fields_to_remove:
-        arcpy.AddMessage("Removing old join fields from the grid...")
-        for old_field in fields_to_remove:
-            arcpy.management.DeleteField(grid_fl, old_field)
-
-    # ----------------------------------------------------------------------
-    # 7. JOIN RESULTS BACK TO THE GRID LAYER
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, nc_table, "NEAR_FID",["FREQUENCY", "FREQUENCY_MIN_MAX"])
-
-    # ----------------------------------------------------------------------
-    # 8. RENAME JOINED FIELDS
-    # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "FREQUENCY", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "FREQUENCY_MIN_MAX", std_output_index_name, std_output_index_alias)
-
-    # ----------------------------------------------------------------------
-    # 9. CLEANUP
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Removing temporary zone field...")
-    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.AddMessage("Cleaning intermediate datasets...")
-    arcpy.management.DeleteField(landscape_fl, ["NEAR_FID", "NEAR_DIST"])
-
-    for fl in (dissolved_fc, nc_table):
-        if arcpy.Exists(fl):
-            arcpy.management.Delete(fl)
+    # 9. Cleanup. Klasa użytkownika nie wymaga sprzątania — Near pracował na
+    #    kopii w pamięci, więc nie dopisał do niej pól NEAR_FID/NEAR_DIST.
+    arcpy.AddMessage("Cleaning up temporary memory layers...")
+    for item in (dissolved_fc, nc_table, stats_table, working_grid_memory,
+                 temp_points_memory, non_null_lyr):
+        if arcpy.Exists(item):
+            arcpy.management.Delete(item)
 
     arcpy.ClearWorkspaceCache_management()
-    if workspace_gdb.endswith(".gdb"):
-        arcpy.management.Compact(workspace_gdb)
-
     arcpy.AddMessage("P_Nc calculation completed successfully.")
 
 except arcpy.ExecuteError:
@@ -348,8 +175,7 @@ except arcpy.ExecuteError:
     arcpy.AddError(arcpy.GetMessages(2))
 
 except Exception as e:
-    arcpy.AddError("Python error occurred:")
-    arcpy.AddError(str(e))
+    arcpy.AddError(f"Python error occurred: {str(e)}")
 
 finally:
     arcpy.ClearWorkspaceCache_management()

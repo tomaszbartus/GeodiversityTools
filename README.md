@@ -1,7 +1,7 @@
 # Geodiversity Tools for ArcGIS Pro
 
 **Author:** Tomasz Bartuś  
-**Version:** 0.2.0  
+**Version:** 1.0.0  
 **ArcGIS Pro:** 3.x
 
 ## Overview
@@ -15,49 +15,52 @@ The tools are implemented as:
 
 The workflows support analyses such as:
 
-- vector-based landscape metrics:
-  - diversity of polygonal (A) features based on the number of elements (A_Ne) and number of categories (A_Nc)
-  - diversity of polygonal (A) features based on Shannon-Weaver diversity index (A_SHDI)
-  - diversity of linear (L) features based on the total length of features (L_Tl)
-  - diversity of point (P) features based on the number of elements (P_Ne), number of categories (P_Nc) and unit entrophy (P_Hu)
-- raster-based (R) landscape metrics:
-  - diversity of continuous regionalized variables based on: standard deviation (R_SD), circular standard deviation (R_SDc) and Steinhaus vertical relief index (R_M)
+- **Vector-based (A, L, P) landscape metrics:**
+  - diversity of polygonal (A) features based on the number of elements (`A_Ne`) and number of categories (`A_Nc`)
+  - diversity of polygonal (A) features based on Shannon-Weaver diversity index (`A_SHDI`)
+  - diversity of linear (L) features based on the total length of features (`L_Tl`)
+  - diversity of point (P) features based on the number of elements (`P_Ne`), number of categories (`P_Nc`), and unit entropy (`P_Hu`)
+- **Raster-based (R) landscape metrics:**
+  - diversity of continuous regionalized variables based on: standard deviation (`R_SD`), modified standard deviation (`R_SDm`), circular standard deviation (`R_SDc`), modified circular standard deviation (`R_SDcm`), and Steinhaus vertical relief index (`R_M`)
+- **Aggregation tool:**
+  - partial criteria aggregation tool (`AR`) supporting custom weighting of partial assessments
 
 These tools are intended for landscape analysis, geodiversity assessment, environmental planning, and scientific research.
 
-```
+---
 
 ## Repository Structure
 
+```text
 GeodiversityTools/
 │
 ├── Docs/
-│ ├── GeodiversityTool.pdf
-│ ├── installation.md
-│ ├── licence.md
-│ └── ...
+│   ├── GeodiversityTools.pdf
+│   ├── installation.md
+│   ├── license.md
+│   └── ...
 │
 ├── Symbology/
-│ ├── Colors.md
-│ ├── GeodiversityTools.stylex
+│   ├── Colors.md
+│   └── GeodiversityTools.stylex
 │
 ├── TestData/
-│ ├── TestData.md
-│ ├── TestData.ppkx
+│   ├── TestData.md
+│   └── TestData.ppkx
 │
 ├── Toolbox/
-│ ├── Images/
-│ │ ├── A_Nc.png
-│ │ ├── A_Ne.png
-│ │ ├── A_SHDI.png
-│ │ └── ...
-│ │
-│ ├── Scripts/
-│ │ ├── A_Nc.py
-│ │ ├── A_Ne.py
-│ │ ├── A_SHDI.py
-│ │ └── ...
-│ └── GeodiversityTools.atbx
+│   ├── Images/
+│   │   ├── A_Nc.png
+│   │   ├── A_Ne.png
+│   │   ├── A_SHDI.png
+│   │   └── ...
+│   │
+│   ├── Scripts/
+│   │   ├── A_Nc.py
+│   │   ├── A_Ne.py
+│   │   ├── A_SHDI.py
+│   │   └── ...
+│   └── GeodiversityTools.atbx
 │
 ├── CHANGELOG.md
 └── README.md
@@ -71,6 +74,7 @@ GeodiversityTools/
 - Clean Python implementation using `arcpy` and Spatial Analyst
 - Support for analyses of regionalized discrete and continuous variables
 - Support for grid-based analysis and raster–polygon overlays
+- Support for assessments aggregation
 - Support for file geodatabase (`.gdb`) feature classes; shapefiles (`.shp`) are not supported.
 - Integrated output standardization of geodiversity metrics, ensuring their comparability for cross-grid and cross-region analyses
 - Designed for reproducible scientific workflows

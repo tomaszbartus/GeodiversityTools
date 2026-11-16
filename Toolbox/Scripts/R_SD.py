@@ -1,10 +1,14 @@
-# Geodiversity Tool R_SD (in_memory)
-# Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
-# in each polygon of an analytical grid
-# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# Date: 2026-01-26
+# coding=utf-8
+"""
+Geodiversity Tool: R_SD (Standard Deviation for Raster)
+Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
+within each polygon of an analytical grid and performs Min-Max standardization.
+Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+Refactored for GeodiversityTools Core Architecture
+"""
 
 import arcpy
+import geodiversity_core as core
 
 # Allow overwriting outputs
 arcpy.env.overwriteOutput = True
@@ -16,75 +20,47 @@ try:
     # ----------------------------------------------------------------------
     # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    # 0 - Input RASTER, LINEAR landscape feature (continuous variable)
-    # 1 - Analytical grid feature layer (polygon layer)
-    # 2 - Analytical grid identification field (e.g. OBJECTID)
-    landscape_ras = arcpy.GetParameterAsText(0)
-    grid_fl = arcpy.GetParameterAsText(1)
-    grid_id_field = arcpy.GetParameterAsText(2)
+    landscape_ras = arcpy.GetParameterAsText(0)  # Raster wejściowy
+    grid_fl = arcpy.GetParameterAsText(1)  # Siatka analityczna (Feature Class)
+    grid_id_field = arcpy.GetParameterAsText(2)  # Pole identyfikatora strefy
+
+    # --- USER-DEFINED OUTPUT PARAMETERS ---
+    output_fc_path = arcpy.GetParameterAsText(3)  # Ścieżka wyjściowej klasy obiektów
+    output_raw_field = arcpy.GetParameterAsText(4)  # Nazwa pola surowego odchylenia standardowego
+    output_std_field = arcpy.GetParameterAsText(5)  # Nazwa pola zestandaryzowanego (Min-Max)
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
+    # WORKSPACE, PREFIX AND INTERMEDIATE DATASETS
     # ----------------------------------------------------------------------
     workspace_gdb = arcpy.Describe(grid_fl).path
-    #raster_base = arcpy.Describe(landscape_ras).baseName
-    #prefix = raster_base[:3].upper()
-
-    # Get metadata for the input raster
-    desc_land = arcpy.Describe(landscape_ras)  # get raster metadata
-    base_name = desc_land.name  # raster name without path
-    # Create a safe prefix using the first 3 letters in uppercase
+    desc_land = arcpy.Describe(landscape_ras)
+    base_name = desc_land.name
     prefix = arcpy.ValidateTableName(
-        base_name[:3].upper(),  # first 3 letters in uppercase
-        workspace_gdb  # validate for the target geodatabase
+        base_name[:3].upper(),
+        workspace_gdb
     )
 
     stat_zone_field_ID = "StatZoneID"
     zonal_stat_table = fr"memory\{prefix}_ZONAL_STAT"
     stats_table = fr"memory\{prefix}_STD_STATS"
 
-    # ----------------------------------------------------------------------
-    # VALIDATE DATA FORMATS (BLOCK SHAPEFILES)
-    # ----------------------------------------------------------------------
-    def check_gdb_feature(fc):
-        desc = arcpy.Describe(fc)
-        if desc.dataType == "ShapeFile" or desc.catalogPath.lower().endswith(".shp"):
-            arcpy.AddError(f"Error: Layer '{desc.name}' is a Shapefile.")
-            arcpy.AddError("Geodiversity Tools require GDB feature classes.")
-            raise arcpy.ExecuteError
+    # 1. Walidacja przez core
+    core.check_gdb_feature(grid_fl)
 
-    check_gdb_feature(grid_fl)
-
-    # ---------------------------------------------------------------------------
-    # CHECK SPATIAL INTERSECTION OF EXTENTS
-    # ---------------------------------------------------------------------------
-    # Recalculate extent ONLY for the grid (vector)
     arcpy.AddMessage("Recalculating feature class extent for the grid...")
     arcpy.management.RecalculateFeatureClassExtent(grid_fl)
 
-    # Describe extents
     ext_ras = arcpy.Describe(landscape_ras).extent
     ext_grid = arcpy.Describe(grid_fl).extent
 
-    # Check if raster and grid intersect
     if ext_ras.disjoint(ext_grid):
-        arcpy.AddError(
-            "The raster layer does not spatially overlap with the analytical grid."
-        )
+        arcpy.AddError("The raster layer does not spatially overlap with the analytical grid.")
         raise arcpy.ExecuteError
 
     arcpy.AddMessage("Input validation passed.")
 
     # ----------------------------------------------------------------------
-    # OUTPUT FIELD NAMES
-    # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_RSD"
-    output_index_alias = f"{prefix}_R_SD"
-    std_output_index_name = f"{prefix}_RSD_MM"
-    std_output_index_alias = f"Std_{prefix}_R_SD"
-
-    # ----------------------------------------------------------------------
-    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
+    # FORCE REMOVAL OF LOCKS
     # ----------------------------------------------------------------------
     try:
         arcpy.AddMessage("Removing existing locks...")
@@ -93,50 +69,29 @@ try:
     except:
         pass
 
-    # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Checking if the output fields already exist...")
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    # Przygotowanie bezpiecznej kopii roboczej siatki w pamięci RAM z polem StatZoneID
+    temp_grid_memory = core.prepare_grid_zone_copy(grid_fl, grid_id_field, stat_zone_field_ID)
 
-    field_raw = output_index_name.upper()
-    field_std = std_output_index_name.upper()
-
-    if field_raw in existing_fields or field_std in existing_fields:
-        arcpy.AddError(
-            f"Fields '{output_index_name.upper()}' and/or '{std_output_index_name.upper()}' already exist "
-            f"in the analytical grid attribute table.\n"
-            f"Remove these fields before re-running the tool."
-        )
-        raise Exception("Field name conflict – remove existing fields and try again.")
-
-    # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
-
-    # Remove if exist in grid_fl
-    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
-    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
+    # Czyszczenie śmieci w pamięci
+    for item in [zonal_stat_table, stats_table]:
+        if arcpy.Exists(item):
+            try:
+                arcpy.management.Delete(item)
+            except:
+                pass
 
     # ----------------------------------------------------------------------
     # 2. ZONAL STATISTICS AS TABLE
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Calculating pixel SD within the analytical grid zones...")
-    arcpy.sa.ZonalStatisticsAsTable(grid_fl, stat_zone_field_ID, landscape_ras, zonal_stat_table, "DATA", "STD")
+    arcpy.sa.ZonalStatisticsAsTable(temp_grid_memory, stat_zone_field_ID, landscape_ras, zonal_stat_table, "DATA",
+                                    "STD")
 
     # ----------------------------------------------------------------------
-    # 3. STANDARDIZE SD (MIN-MAX)
+    # 3. STANDARDIZATE SD (MIN-MAX)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("Standardizing SD using manual Min-Max normalization...")
-    #arcpy.management.StandardizeField(zonal_stat_table, "STD", "MIN-MAX", 0, 1) #Problems with standardize in in_memory mode
 
-    # ----------------------------------------------------------------------
-    # 3.1. CALCULATE MIN & MAX OF STD
-    # ----------------------------------------------------------------------
     arcpy.analysis.Statistics(zonal_stat_table, stats_table, [["STD", "MIN"], ["STD", "MAX"]])
 
     with arcpy.da.SearchCursor(stats_table, ["MIN_STD", "MAX_STD"]) as cursor:
@@ -144,24 +99,18 @@ try:
 
     arcpy.management.Delete(stats_table)
 
-    # ----------------------------------------------------------------------
-    # 3.2. CREATE MIN-MAX STANDARDIZED FIELD
-    # ----------------------------------------------------------------------
     std_field_name = "STD_MM"
-    arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE")
+    if std_field_name not in [f.name for f in arcpy.ListFields(zonal_stat_table)]:
+        arcpy.management.AddField(zonal_stat_table, std_field_name, "DOUBLE")
 
     if max_std == min_std:
-        arcpy.AddWarning(
-            "STD has constant value across all zones. "
-            "Standardized values will be set to 0."
-        )
-        arcpy.management.CalculateField( zonal_stat_table, std_field_name,"0","PYTHON3")
+        arcpy.AddWarning("STD has constant value across all zones. Standardized values set to 0.")
+        arcpy.management.CalculateField(zonal_stat_table, std_field_name, "0", "PYTHON3")
     else:
         code_block = f"""
 def minmax(val):
-    return (val - {min_std}) / ({max_std} - {min_std})
+    return (val - {min_std}) / ({max_std} - {min_std}) if val is not None else 0.0
 """
-
         arcpy.management.CalculateField(
             zonal_stat_table,
             std_field_name,
@@ -171,44 +120,29 @@ def minmax(val):
         )
 
     # ----------------------------------------------------------------------
-    # 4. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 4. BEZPIECZNY ZAPIS DO NOWEJ KLASY OBIEKTÓW (Non-destructive)
     # ----------------------------------------------------------------------
-    fields_to_check = ["STD", std_field_name]
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
-
-    # Checking whether any fields need to be removed at all
-    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
-
-    if fields_to_remove:
-        arcpy.AddMessage("Removing old join fields from the grid...")
-        for old_field in fields_to_remove:
-            arcpy.management.DeleteField(grid_fl, old_field)
-
-    # ----------------------------------------------------------------------
-    # 5. JOIN RESULTS BACK TO THE GRID LAYER
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Joining results back to the analytical grid...")
-    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, zonal_stat_table, stat_zone_field_ID,["STD", std_field_name])
+    core.safe_write_to_new_feature_class(
+        grid_fl=grid_fl,
+        grid_id_field=grid_id_field,
+        result_table=zonal_stat_table,
+        raw_value_field="STD",
+        std_value_field=std_field_name,
+        output_fc_path=output_fc_path,
+        output_raw_field=output_raw_field,
+        output_std_field=output_std_field
+    )
 
     # ----------------------------------------------------------------------
-    # 6. RENAME JOINED FIELDS
+    # 5. CLEANUP
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl, "STD", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, std_field_name, std_output_index_name, std_output_index_alias)
-
-    # ----------------------------------------------------------------------
-    # 7. CLEANUP
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Removing temporary zone field...")
-    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
     arcpy.AddMessage("Cleaning intermediate datasets...")
-    for item in [zonal_stat_table]:
+    for item in [zonal_stat_table, stats_table, temp_grid_memory]:
         if arcpy.Exists(item):
             try:
-               arcpy.management.Delete(item)
-            except Exception:
-                arcpy.AddWarning(f"Could not delete intermediate dataset: {item}")
+                arcpy.management.Delete(item)
+            except:
+                pass
 
     arcpy.ClearWorkspaceCache_management()
     if workspace_gdb.endswith(".gdb"):

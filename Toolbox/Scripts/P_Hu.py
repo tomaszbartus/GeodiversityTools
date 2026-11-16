@@ -1,10 +1,15 @@
-# Geodiversity Tool P_Hu
-# Calculates the unit entropy (Hu) point feature layer within each polygon of the analytical grid
-# Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-# 2026-01-26
+# coding=utf-8
+"""
+Geodiversity Tool: P_Hu (Unit Entropy of Point Features)
+Calculates the unit entropy (Hu) of point features within each polygon of the analytical grid
+and creates a new, standalone output feature class with user-defined fields.
+Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+Refactored for GeodiversityTools Core Architecture
+"""
 
 import arcpy
 import math
+import geodiversity_core as core
 
 # Allow overwrite
 arcpy.env.overwriteOutput = True
@@ -16,259 +21,173 @@ try:
     # ----------------------------------------------------------------------
     # INPUT PARAMETERS FROM TOOL
     # ----------------------------------------------------------------------
-    landscape_fl = arcpy.GetParameterAsText(0)           # point feature layer
-    landscape_attr = arcpy.GetParameterAsText(1)         # geosites category field
-    grid_fl = arcpy.GetParameterAsText(2)                # grid layer
-    grid_id_field = arcpy.GetParameterAsText(3)          # OBJECTID of the grid
+    landscape_fl = arcpy.GetParameterAsText(0)  # 0 - point feature layer
+    landscape_attr = arcpy.GetParameterAsText(1)  # 1 - geosites category field
+    grid_fl = arcpy.GetParameterAsText(2)  # 2 - grid layer
+    grid_id_field = arcpy.GetParameterAsText(3)  # 3 - grid ID field
+    null_handling_mode = arcpy.GetParameterAsText(4)  # 4 - Handling of empty grid cells
+
+    # --- USER-DEFINED OUTPUT PARAMETERS ---
+    output_fc_path = arcpy.GetParameterAsText(5)  # 5 - Output feature class path (DE Feature Class, Output)
+
+    # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
+    default_raw_field = "R_Hu_cecha_P"
+    default_std_field = "SR_Hu_cecha_P"
+
+    output_raw_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output partial criteria field name (String, Input)
+    output_std_field = (arcpy.GetParameterAsText(7) or "").strip()  # 7 - Output std. partial criteria field name (String, Input)
+
+    if not output_raw_field:
+        output_raw_field = default_raw_field
+        arcpy.AddMessage(f"Raw output field not provided; using default '{default_raw_field}'.")
+
+    if not output_std_field:
+        output_std_field = default_std_field
+        arcpy.AddMessage(f"Standardized output field not provided; using default '{default_std_field}'.")
 
     # ----------------------------------------------------------------------
-    # WORKSPACE, PREFIX, FIELDS AND INTERMEDIATE DATASETS
+    # OBSŁUGA PUSTYCH PÓL SIATKI W STANDARYZACJI MIN–MAX
     # ----------------------------------------------------------------------
-    workspace_gdb = arcpy.Describe(landscape_fl).path
-    #prefix = arcpy.Describe(landscape_fl).baseName[:3].upper()
-    desc_land = arcpy.Describe(landscape_fl)        # get the layer's metadata
-    base_name = desc_land.name                      # FC name without the path
-    prefix = arcpy.ValidateTableName(
-        base_name[:3].upper(),                      # first 3 letters in uppercase
-        workspace_gdb                               # validate for the target geodatabase
+    include_zero = core.resolve_empty_cell_mode(null_handling_mode)
+    if include_zero:
+        arcpy.AddMessage(
+            "Empty-cell handling: 0 included in the Min–Max range (MIN = 0), "
+            "MAX from observed Hu values."
+        )
+    else:
+        arcpy.AddMessage(
+            "Empty-cell handling: empty cells ignored in standardization, "
+            "MIN and MAX from observed Hu values."
+        )
+
+    # Lokalizacje tymczasowe w pamięci RAM
+    stat_zone_field_ID = "StatZoneID"
+    intersect_fc = "memory\\temp_phu_intersect"
+    tabulate_intersection_table = "memory\\temp_phu_ti_tbl"
+    Hu_table = "memory\\temp_phu_tbl"
+
+    # 1. Walidacja wstępna przez moduł core
+    arcpy.AddMessage("Validating input feature classes...")
+    core.check_gdb_feature(grid_fl)
+    core.check_gdb_feature(landscape_fl)
+
+    # Filtr kategorii: obiekty bez kategorii (NULL lub pusty ciąg w polu
+    # kategorii) są pomijane — nie tworzą odrębnej klasy (zob. rozdział 3.8.1).
+    # Dalej używamy warstwy landscape_lyr zamiast landscape_fl.
+    landscape_attr = core.resolve_field_name(
+        landscape_fl, landscape_attr, "Landscape category attribute"
+    )
+    landscape_lyr = core.make_category_layer(
+        landscape_fl, landscape_attr, "temp_phu_category_lyr"
     )
 
-    stat_zone_field_ID = "StatZoneID"
-    intersect_fc = f"{workspace_gdb}\\{prefix}_Hu_Int"
-    tabulate_intersection_table = f"{workspace_gdb}\\{prefix}_Hu_Ti_Tbl"
-    Hu_table = f"{workspace_gdb}\\{prefix}_Hu_Tbl"
-    stats_table = f"memory\\{prefix}_stats_temp"
+    # 2. Przygotowanie bezpiecznej kopii strefowej w pamięci RAM (oryginalna siatka nietknięta!)
+    working_grid_memory = core.prepare_grid_zone_copy(grid_fl, grid_id_field, stat_zone_field_ID)
 
-    # ----------------------------------------------------------------------
-    # VALIDATE DATA FORMATS (BLOCK SHAPEFILES)
-    # ----------------------------------------------------------------------
-    def check_gdb_feature(fc):
-        desc = arcpy.Describe(fc)
-        if desc.dataType == "ShapeFile" or desc.catalogPath.lower().endswith(".shp"):
-            arcpy.AddError(f"Error: Layer '{desc.name}' is a Shapefile.")
-            arcpy.AddError("Geodiversity Tools require GDB feature classes.")
-            raise arcpy.ExecuteError
-
-    check_gdb_feature(landscape_fl)
-    check_gdb_feature(grid_fl)
-
-    # ---------------------------------------------------------------------------
-    # CHECK SPATIAL INTERSECTION OF EXTENTS
-    # ---------------------------------------------------------------------------
-    # Recalculate extents
-    arcpy.AddMessage("Recalculating feature class extents...")
-    arcpy.management.RecalculateFeatureClassExtent(landscape_fl)
-    arcpy.management.RecalculateFeatureClassExtent(grid_fl)
-
-    # Check if input layers contain features
-    if int(arcpy.management.GetCount(landscape_fl)[0]) == 0:
-        arcpy.AddError("Landscape features layer contains no features.")
-        raise arcpy.ExecuteError
-
-    if int(arcpy.management.GetCount(grid_fl)[0]) == 0:
-        arcpy.AddError("Analytical grid layer contains no features.")
-        raise arcpy.ExecuteError
-
-    # Get updated extents
-    ext_land = arcpy.Describe(landscape_fl).extent
-    ext_grid = arcpy.Describe(grid_fl).extent
-
-    # Check spatial intersection of extents
-    # Two extents intersect if they are NOT disjoint
-    if ext_land.disjoint(ext_grid):
-        arcpy.AddError(
-            "The landscape features layer does not spatially overlap "
-            "with the analytical grid. Analysis cannot be performed."
-        )
-        raise arcpy.ExecuteError
-
-    # Inform user
-    arcpy.AddMessage("Input validation passed.")
-
-    # ----------------------------------------------------------------------
-    # OUTPUT FIELD NAMES
-    # ----------------------------------------------------------------------
-    output_index_name = f"{prefix}_PHu"
-    output_index_alias = f"{prefix}_P_Hu"
-    std_output_index_name = f"{prefix}_PHu_MM"
-    std_output_index_alias = f"Std_{prefix}_P_Hu"
-
-    # ----------------------------------------------------------------------
-    # FORCE REMOVAL OF LOCKS FROM INPUT DATASETS
-    # ----------------------------------------------------------------------
-    try:
-        arcpy.AddMessage("Removing existing locks...")
-        arcpy.management.RemoveLocks(landscape_fl)
-        arcpy.management.RemoveLocks(grid_fl)
-    except:
-        pass
-
-    # ----------------------------------------------------------------------
-    # CHECK IF INTERMEDIATE DATASETS ALREADY EXIST IN GDB
-    # ----------------------------------------------------------------------
-    intermediate_items = [
-        intersect_fc,
-        tabulate_intersection_table,
-        Hu_table
-    ]
-    arcpy.AddMessage("Checking for leftover intermediate datasets...")
-
+    # Czyszczenie śmieci po poprzednich uruchomieniach
+    intermediate_items = [intersect_fc, tabulate_intersection_table, Hu_table]
     for item in intermediate_items:
         if arcpy.Exists(item):
             try:
                 arcpy.management.Delete(item)
-                arcpy.AddMessage(f"Removed leftover dataset: {item}")
             except:
-                arcpy.AddWarning(f"Could not remove leftover dataset: {item}")
+                pass
 
     # ----------------------------------------------------------------------
-    # CHECK IF OUTPUT FIELDS ALREADY EXIST IN GRID TABLE
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Checking if the output fields already exist...")
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
-
-    field_raw = output_index_name.upper()
-    field_std = std_output_index_name.upper()
-
-    if field_raw in existing_fields or field_std in existing_fields:
-        arcpy.AddError(
-            f"Fields '{output_index_name.upper()}' already exist "
-            f"in the analytical grid attribute table.\n"
-            f"Remove these fields before re-running the tool."
-        )
-        raise Exception("Field name conflict – remove existing fields and try again.")
-
-    # ----------------------------------------------------------------------
-    # 1. CREATE TEMPORARY STATISTICAL ZONE FIELD ID TO AVOID OBJECTID_1 CONFLICTS
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage(f"Creating temporary zone field: {stat_zone_field_ID}...")
-
-    # Remove if exist in grid_fl
-    if stat_zone_field_ID in [f.name for f in arcpy.ListFields(grid_fl)]:
-        arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
-    arcpy.management.AddField(grid_fl, stat_zone_field_ID, "LONG")
-    arcpy.management.CalculateField(grid_fl, stat_zone_field_ID, f"!{grid_id_field}!", "PYTHON3")
-
-    # ----------------------------------------------------------------------
-    # 2. SPATIAL JOIN
+    # 3. SPATIAL JOIN (na kopii w RAM)
     # ----------------------------------------------------------------------
     arcpy.AddMessage("SPATIALLY JOINING landscape points with the analytical grid...")
-    arcpy.analysis.SpatialJoin(grid_fl, landscape_fl, intersect_fc, "JOIN_ONE_TO_ONE","KEEP_ALL", "", "INTERSECT")
+    arcpy.analysis.SpatialJoin(working_grid_memory, landscape_lyr, intersect_fc, "JOIN_ONE_TO_ONE", "KEEP_ALL", "",
+                               "INTERSECT")
 
-    arcpy.management.AlterField(intersect_fc, "Join_Count", "Ne")
-
-    # ----------------------------------------------------------------------
-    # 3. TABULATE INTERSECTION
-    # Funkcja tworzy tabelę złożoną z kolumn: 1) ID komórki grida, 2) wartość kategorii, 3) liczby punktów tej kategorii (PNT_COUNT)
-    # ----------------------------------------------------------------------
-    #arcpy.analysis.TabulateIntersection(grid_fl, grid_id_field, landscape_fl, tabulate_intersection_table, landscape_attr)
-    arcpy.analysis.TabulateIntersection(grid_fl, stat_zone_field_ID, landscape_fl, tabulate_intersection_table, landscape_attr)
+    # Dodajemy pole 'Ne' zamiast AlterField (ponieważ AlterField nie działa w memory\)
+    arcpy.management.AddField(intersect_fc, "Ne", "DOUBLE")
+    arcpy.management.CalculateField(intersect_fc, "Ne", "!Join_Count!", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 4. q_i = PNT_COUNT / Ne
+    # 4. TABULATE INTERSECTION (z użyciem kopii w RAM)
     # ----------------------------------------------------------------------
-    # Add new attribute Ne to the tabulate_intersection_table
-    #arcpy.management.JoinField(tabulate_intersection_table, f"{grid_id_field}_1", intersect_fc, grid_id_field,["Ne"])
-    arcpy.management.JoinField(tabulate_intersection_table, stat_zone_field_ID, intersect_fc, stat_zone_field_ID, ["Ne"])
+    arcpy.AddMessage("Calculating Tabulate Intersection...")
+    arcpy.analysis.TabulateIntersection(working_grid_memory, stat_zone_field_ID, landscape_lyr,
+                                        tabulate_intersection_table, landscape_attr)
 
-    # Add new attribute q_i to the tabulate_intersection_table
+    # ----------------------------------------------------------------------
+    # 5. q_i = PNT_COUNT / Ne
+    # ----------------------------------------------------------------------
+    arcpy.management.JoinField(tabulate_intersection_table, stat_zone_field_ID, intersect_fc, stat_zone_field_ID,
+                               ["Ne"])
+
     arcpy.management.AddField(tabulate_intersection_table, "q_i", "DOUBLE")
-
-    # CALCULATE q_i
-    arcpy.management.CalculateField(tabulate_intersection_table,"q_i","(!PNT_COUNT! / !Ne!) if !Ne! > 0 else 0","PYTHON3")
+    arcpy.management.CalculateField(tabulate_intersection_table, "q_i", "(!PNT_COUNT! / !Ne!) if !Ne! > 0 else 0",
+                                    "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 5. CALCULATE UNIT ENTROPY H_i = -(q_i * ln(q_i))
+    # 6. CALCULATE UNIT ENTROPY H_i = -(q_i * ln(q_i))
     # ----------------------------------------------------------------------
     arcpy.management.AddField(tabulate_intersection_table, "H_i", "DOUBLE")
-    arcpy.management.CalculateField(tabulate_intersection_table,"H_i","-(!q_i! * math.log(!q_i!)) if !q_i! > 0 else 0","PYTHON3")
+    arcpy.management.CalculateField(tabulate_intersection_table, "H_i",
+                                    "-(!q_i! * math.log(!q_i!)) if !q_i! > 0 else 0", "PYTHON3")
 
     # ----------------------------------------------------------------------
-    # 6. SUMMARIZE ALL H_i -- use the grid ID field name present in the tabulate table (usually grid_id + "_1")
+    # 7. SUMMARIZE ALL H_i
     # ----------------------------------------------------------------------
-    #arcpy.analysis.Statistics(tabulate_intersection_table, Hu_table,[["H_i", "SUM"]], f"{grid_id_field}_1")
     arcpy.analysis.Statistics(tabulate_intersection_table, Hu_table, [["H_i", "SUM"]], stat_zone_field_ID)
 
     # ----------------------------------------------------------------------
-    # 7. SAFE MIN–MAX STANDARDIZATION FOR Hu (memory version)
-    # If MIN(Hu) == MAX(Hu), assign 0 to all rows
+    # 8. SAFE MIN–MAX STANDARDIZATION FOR Hu
     # ----------------------------------------------------------------------
-    arcpy.AddMessage("Standardizing P_Hu (Min-Max)...")
+    arcpy.AddMessage("Standardizing P_Hu (Min–Max)...")
 
-    # 7.1. Calculate statistics (min and max of SUM_H_i) using memory table
-    arcpy.analysis.Statistics(Hu_table, stats_table, [["SUM_H_i", "MIN"], ["SUM_H_i", "MAX"]])
+    hu_values = [row[0] for row in arcpy.da.SearchCursor(Hu_table, ["SUM_H_i"]) if row[0] is not None]
+    if not hu_values:
+        arcpy.AddWarning("No Hu values were calculated for the analytical grid.")
 
-    # 7.2. Read min/max values
-    with arcpy.da.SearchCursor(stats_table, ["MIN_SUM_H_i", "MAX_SUM_H_i"]) as cursor:
+    min_SUM_H_i, max_SUM_H_i = core.min_max_bounds(hu_values, include_zero)
+    arcpy.AddMessage(f"Using MIN={min_SUM_H_i} and MAX={max_SUM_H_i} for standardization.")
+
+    std_field_name = "SUM_H_i_MIN_MAX"
+    if std_field_name not in [f.name for f in arcpy.ListFields(Hu_table)]:
+        arcpy.management.AddField(Hu_table, std_field_name, "DOUBLE")
+
+    with arcpy.da.UpdateCursor(Hu_table, ["SUM_H_i", std_field_name]) as cursor:
         for row in cursor:
-            min_SUM_H_i = float(row[0])
-            max_SUM_H_i = float(row[1])
-
-    # 7.3. Delete temporary in_memory table
-    arcpy.management.Delete(stats_table)
-
-    # 7.4. Case 1 — all values identical → assign 0 to all records
-    if min_SUM_H_i == max_SUM_H_i:
-        arcpy.AddMessage(
-            "All Hu values are identical (MIN = MAX). "
-            "Skipping Min–Max standardization. Assigning 0 to SUM_H_i_MIN_MAX."
-        )
-
-        # Add new field for standardized values
-        if "SUM_H_i_MIN_MAX" not in [f.name for f in arcpy.ListFields(Hu_table)]:
-            arcpy.management.AddField(Hu_table, "SUM_H_i_MIN_MAX", "DOUBLE")
-
-        # Set all SUM_H_i_MIN_MAX values to 0
-        arcpy.management.CalculateField(Hu_table, "SUM_H_i_MIN_MAX", 0, "PYTHON3")
-
-    # 7.5. Case 2 — normal standardization
-    else:
-        arcpy.AddMessage("Performing Min–Max standardization of Hu...")
-        arcpy.management.StandardizeField(Hu_table, "SUM_H_i", "MIN-MAX", 0, 1)
+            row[1] = core.standardize_min_max(row[0], min_SUM_H_i, max_SUM_H_i)
+            cursor.updateRow(row)
 
     # ----------------------------------------------------------------------
-    # 8. ENSURE OLD JOIN FIELDS ARE REMOVED FROM THE GRID
+    # 9. BEZPIECZNY ZAPIS DO NOWEJ KLASY OBIEKTÓW
     # ----------------------------------------------------------------------
-    fields_to_check = ["SUM_H_i", "SUM_H_i_MIN_MAX"]
-    existing_fields = [f.name.upper() for f in arcpy.ListFields(grid_fl)]
+    core.safe_write_to_new_feature_class(
+        grid_fl=grid_fl,
+        grid_id_field=grid_id_field,
+        result_table=Hu_table,
+        raw_value_field="SUM_H_i",
+        std_value_field=std_field_name,
+        output_fc_path=output_fc_path,
+        output_raw_field=output_raw_field,
+        output_std_field=output_std_field
+    )
 
-    # Checking whether any fields need to be removed at all
-    fields_to_remove = [f for f in fields_to_check if f in existing_fields]
-
-    if fields_to_remove:
-        arcpy.AddMessage("Removing old join field from the grid...")
-        for old_field in fields_to_remove:
-            arcpy.management.DeleteField(grid_fl, old_field)
-
-    # ----------------------------------------------------------------------
-    # 9. JOIN RESULTS BACK TO THE GRID LAYER
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Joining results back to the analytical grid...")
-    #arcpy.management.JoinField(grid_fl, grid_id_field, Hu_table, f"{grid_id_field}_1",["SUM_H_i", "SUM_H_i_MIN_MAX"])
-    arcpy.management.JoinField(grid_fl, stat_zone_field_ID, Hu_table, stat_zone_field_ID, ["SUM_H_i", "SUM_H_i_MIN_MAX"])
+    arcpy.AddMessage(f"Unit entropy calculated successfully.")
 
     # ----------------------------------------------------------------------
-    # 10. RENAME JOINED FIELDS
+    # 10. CLEANUP
     # ----------------------------------------------------------------------
-    arcpy.management.AlterField(grid_fl,"SUM_H_i", output_index_name, output_index_alias)
-    arcpy.management.AlterField(grid_fl, "SUM_H_i_MIN_MAX",std_output_index_name, std_output_index_alias)
-    arcpy.AddMessage(f"Unit entropy ({output_index_name}) calculated successfully.")
-
-    # ----------------------------------------------------------------------
-    # 11. CLEANUP
-    # ----------------------------------------------------------------------
-    arcpy.AddMessage("Removing temporary zone field...")
-    arcpy.management.DeleteField(grid_fl, stat_zone_field_ID)
-
     arcpy.AddMessage("Cleaning intermediate datasets...")
-    for fc in (intersect_fc, tabulate_intersection_table, Hu_table):
+    for fc in intermediate_items:
         if arcpy.Exists(fc):
-            arcpy.management.Delete(fc)
+            try:
+                arcpy.management.Delete(fc)
+            except:
+                pass
+
+    if arcpy.Exists(working_grid_memory):
+        arcpy.management.Delete(working_grid_memory)
+
+    if arcpy.Exists(landscape_lyr):
+        arcpy.management.Delete(landscape_lyr)
 
     arcpy.ClearWorkspaceCache_management()
-    if workspace_gdb.endswith(".gdb"):
-        arcpy.management.Compact(workspace_gdb)
     arcpy.AddMessage("P_Hu calculation completed successfully.")
 
 except arcpy.ExecuteError:
@@ -276,5 +195,8 @@ except arcpy.ExecuteError:
     arcpy.AddError(arcpy.GetMessages(2))
 
 except Exception as e:
-    arcpy.AddError("Python error occurred:")
+    arcpy.AddError(f"Python error occurred:")
     arcpy.AddError(str(e))
+
+finally:
+    arcpy.ClearWorkspaceCache_management()

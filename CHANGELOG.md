@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 - Planned new metrics and diversity indices
-- Further improvements to handling of shapefiles
-- Updates to documentation and installation instructions
+- Further improvements to vector and raster processing workflows
+- Updates to documentation and user guides
+
+---
+
+## [1.0.0] - 2026-11-11
+### Added
+- **New Raster Metrics (`R_SDm`, `R_SDcm`):** Introduced Modified Standard Deviation (`R_SDm`) and Modified Circular Standard Deviation (`R_SDcm`) for continuous and circular raster features. Both incorporate user-defined slope-based filtering (`slope <= threshold`) to eliminate high-variability artifacts in flat topography (e.g., aspect noise on flat terrain).
+- **Aggregation Tool (`AR`):** Added a comprehensive assessment aggregation tool supporting custom weighting of partial geodiversity criteria.
+- **Core Architecture Module (`geodiversity_core`):** Implemented a centralized core module standardizing input validations, environment settings (`memory\` workspace enforcement, Z/M flag disabling), lock removal, and robust error handling.
+- **Auxiliary Outputs for `R_M`:** Enabled automatic export of analytical profile lines (`RM_Lines`) and extreme/border points (`RM_Points`) to the target Geodatabase for advanced verification and scientific visualization.
+
+### Changed
+- **Architectural Shift (Non-Destructive Processing):** Re-engineered the output workflow. Instead of modifying attributes directly within the input analytical grid, every tool now generates a dedicated, standalone polygon feature class containing both raw and globally Min-Max standardized criteria fields.
+- **In-Memory Optimization:** Standardized intermediate geoprocessing steps to execute entirely within the fast `memory\` workspace, significantly reducing disk I/O overhead and improving execution speed.
+- **Standardized Parameter Schema:** Unified all raster and vector tools to follow a consistent 6-parameter form configuration pattern (inputs, operational thresholds, paths, and dynamic field naming).
+
+### Fixed
+- **Topographic Noise:** Resolved false high-diversity values caused by unstable topographic derivatives (such as aspect or curvature) on flat landforms.
+- **Workspace Concurrency & Locks:** Improved automatic lock releasing and temporary dataset cleanup (`arcpy.management.RemoveLocks`, `arcpy.ClearWorkspaceCache_management`), preventing schema locks during batch processing.
 
 ---
 
@@ -19,7 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - New Index: Introduced the Steinhaus Vertical Relief Index (`R_M`) for measuring landform energy and vertical diversity using a scale-independent, additive approach based on Steinhaus (1947).
 - Spatial Overlap Validation: Added a pre-processing check to ensure that the landscape feature layer and the analytical grid have a common spatial extent.
 - Data Format Enforcement: Added a restriction to prevent the use of shapefiles, ensuring all operations are performed within Geodatabases (`.gdb`) for data integrity.
-
 
 ### Fixed
 - Coordinate System Inheritance: Prevented the automatic inheritance of Z- and M-coordinates in output feature classes, resolving potential geometry compatibility issues.
