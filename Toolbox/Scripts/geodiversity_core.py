@@ -16,11 +16,21 @@ LONG_MAX = 2147483647
 # a nie nazwy z domeny narzędzia ("Short", "Long").
 ALLOWED_ID_FIELD_TYPES = ("SmallInteger", "Integer", "BigInteger", "OID")
 
-# Etykiety opcji obsługi pustych pól siatki (identyczne we wszystkich
-# narzędziach wektorowych poza AR). Wartość 0 w klasie wynikowej jest zawsze
-# zapisywana dla pustego pola; opcja decyduje wyłącznie o zakresie Min–Max.
-EMPTY_CELLS_ZERO = "Empty cells = 0 (MIN = 0)"
-EMPTY_CELLS_IGNORED = "Empty cells ignored in standardization (MIN/MAX from observed values)"
+# Etykiety opcji obsługi pustych pól siatki. Każde narzędzie wektorowe (poza AR)
+# używa we własnej etykiecie symbolu swojej metryki, np.
+#   "Replace NULL with 0 (MIN=0, MAX from Ne)"
+#   "Keep NULL (MIN/MAX from observed Ne only)"
+# Wartość 0 w klasie wynikowej jest zawsze zapisywana dla pustego pola; opcja
+# decyduje wyłącznie o zakresie Min–Max, dlatego resolver porównuje tylko
+# początek etykiety, niezależnie od nazwy metryki na końcu.
+_LABEL_REPLACE_ZERO = "replace null with 0"
+_LABEL_KEEP_NULL = "keep null"
+
+# Etykiety robocze z wersji rozwojowej 1.0.0 — rozpoznawane nadal, aby nie
+# przerywać działania starszych modeli i wpisów w historii geoprzetwarzania.
+_LABEL_EMPTY_ZERO = "empty cells = 0"
+_LABEL_EMPTY_ZERO_ALT = "empty cells=0"
+_LABEL_EMPTY_IGNORED = "empty cells ignored"
 
 
 def resolve_empty_cell_mode(value):
@@ -39,9 +49,13 @@ def resolve_empty_cell_mode(value):
         )
 
     normalized = " ".join(text.replace("¦", "|").split()).lower()
-    if normalized.startswith("empty cells ignored"):
+    if normalized.startswith(_LABEL_KEEP_NULL) or normalized.startswith(_LABEL_EMPTY_IGNORED):
         return False
-    if normalized.startswith("empty cells = 0") or normalized.startswith("empty cells=0"):
+    if (
+        normalized.startswith(_LABEL_REPLACE_ZERO)
+        or normalized.startswith(_LABEL_EMPTY_ZERO)
+        or normalized.startswith(_LABEL_EMPTY_ZERO_ALT)
+    ):
         return True
 
     raise Exception(f"Unrecognized empty-cell handling mode: '{text}'.")
@@ -419,7 +433,8 @@ def safe_write_to_new_feature_class(
         output_fc_path,
         output_raw_field,
         output_std_field,
-        protected_inputs=None
+        protected_inputs=None,
+        raw_field_type="DOUBLE"
 ):
     """
     Tworzy nową, niezależną klasę obiektów wynikowych pod wskazaną pełną ścieżką,
@@ -428,6 +443,10 @@ def safe_write_to_new_feature_class(
 
     protected_inputs: opcjonalna lista datasetów wejściowych (np. warstwa
     krajobrazu), których nie wolno nadpisać ścieżką wyjściową.
+
+    raw_field_type: typ pola z wartością surową — "DOUBLE" (domyślnie) dla metryk
+    ciągłych lub "LONG" dla metryk licznikowych (liczba elementów, kategorii).
+    Pole z wartością standaryzowaną zawsze ma typ DOUBLE.
     """
     arcpy.AddMessage(f"Creating output feature class at: {output_fc_path}...")
 
@@ -488,8 +507,22 @@ def safe_write_to_new_feature_class(
                 results_dict[zid] = (raw_val, std_val)
 
     # 6. Dodanie zadeklarowanych przez użytkownika pól do nowej klasy obiektów
-    arcpy.management.AddField(output_fc_path, output_raw_field, "DOUBLE", field_alias=output_raw_field)
-    arcpy.management.AddField(output_fc_path, output_std_field, "DOUBLE", field_alias=output_std_field)
+    raw_field_type = (raw_field_type or "DOUBLE").upper()
+    arcpy.management.AddField(
+        output_fc_path, output_raw_field, raw_field_type, field_alias=output_raw_field
+    )
+    arcpy.management.AddField(
+        output_fc_path, output_std_field, "DOUBLE", field_alias=output_std_field
+    )
+
+    # Wartości licznikowe zapisywane są jako LONG; rzutowanie zabezpiecza przed
+    # zapisem liczby zmiennoprzecinkowej do pola całkowitoliczbowego.
+    def _raw_value(value):
+        if value is None:
+            return 0
+        if raw_field_type == "LONG":
+            return int(round(float(value)))
+        return float(value)
 
     # 7. Zapis kursorowy w nowej klasie obiektów na podstawie identyfikatora siatki
     update_fields = [grid_id_field, output_raw_field, output_std_field]
@@ -498,10 +531,10 @@ def safe_write_to_new_feature_class(
             g_id = row[0]
             if g_id in results_dict:
                 raw_v, std_v = results_dict[g_id]
-                row[1] = raw_v if raw_v is not None else 0.0
+                row[1] = _raw_value(raw_v)
                 row[2] = std_v if std_v is not None else 0.0
             else:
-                row[1] = 0.0
+                row[1] = _raw_value(None)
                 row[2] = 0.0
             cursor.updateRow(row)
 

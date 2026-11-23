@@ -38,8 +38,8 @@ try:
     output_fc_path = arcpy.GetParameterAsText(5)  # 5 - Output feature class path (DE Feature Class, Output)
 
     # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
-    default_raw_field = "R_SHDI_cecha_A"
-    default_std_field = "SR_SHDI_cecha_A"
+    default_raw_field = "R_SHDI_feature_A"
+    default_std_field = "SR_SHDI_feature_A"
 
     output_raw_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output partial criteria field name
     output_std_field = (arcpy.GetParameterAsText(7) or "").strip()  # 7 - Output std. partial criteria field name
@@ -306,9 +306,9 @@ try:
         sum_term_field = sum_candidates[0]
 
     # 14. Normalizacja Min–Max. Puste komórki nie trafiają do tabeli
-    #     statystyk, więc w trybie "Empty cells = 0" dolny kraniec zakresu
-    #     wynosi 0, a w trybie pomijającym puste pola zakres wyznaczają
-    #     wyłącznie pola z danymi.
+    #     statystyk, więc w trybie "Replace NULL with 0" dolny kraniec zakresu
+    #     wynosi 0, a w trybie "Keep NULL" zakres wyznaczają wyłącznie pola
+    #     z danymi.
     arcpy.AddMessage("Standardizing SHDI (Min–Max)...")
     h_values = [
         float(row[0]) for row in arcpy.da.SearchCursor(shdi_table, [sum_term_field])

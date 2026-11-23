@@ -26,8 +26,8 @@ try:
     output_fc_path = arcpy.GetParameterAsText(5)  # 5 - Output feature class path (DE Feature Class, Output)
 
     # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
-    default_raw_field = "R_Nc_cecha_P"
-    default_std_field = "SR_Nc_cecha_P"
+    default_raw_field = "R_Nc_feature_P"
+    default_std_field = "SR_Nc_feature_P"
 
     output_raw_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output partial criteria field name (String, Input)
     output_std_field = (arcpy.GetParameterAsText(7) or "").strip()  # 7 - Output std. partial criteria field name (String, Input)
@@ -156,7 +156,8 @@ try:
         std_value_field=std_field_name,
         output_fc_path=output_fc_path,
         output_raw_field=output_raw_field,
-        output_std_field=output_std_field
+        output_std_field=output_std_field,
+        raw_field_type="LONG"
     )
 
     # 9. Cleanup. Klasa użytkownika nie wymaga sprzątania — Near pracował na

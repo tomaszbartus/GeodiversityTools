@@ -33,8 +33,8 @@ try:
     out_fc_path = arcpy.GetParameterAsText(5)     # 5 - Output feature class path (DE Feature Class)
 
     # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
-    default_raw_field = "R_Nc_cecha_A"
-    default_std_field = "SR_Nc_cecha_A"
+    default_raw_field = "R_Nc_feature_A"
+    default_std_field = "SR_Nc_feature_A"
 
     out_raw_field = (arcpy.GetParameterAsText(6) or "").strip()   # 6 - Output partial criteria field name
     out_std_field = (arcpy.GetParameterAsText(7) or "").strip()   # 7 - Output std. partial criteria field name
@@ -202,7 +202,8 @@ try:
         output_raw_field=out_raw_field,
         output_std_field=out_std_field,
         # Chronimy również warstwę krajobrazu przed nadpisaniem przez output.
-        protected_inputs=[landscape_fl]
+        protected_inputs=[landscape_fl],
+        raw_field_type="LONG"
     )
 
     arcpy.AddMessage("Tool A_Nc finished successfully.")

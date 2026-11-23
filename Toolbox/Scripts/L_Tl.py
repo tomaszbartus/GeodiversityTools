@@ -25,8 +25,8 @@ try:
     output_fc_path = arcpy.GetParameterAsText(4)  # 4 - Output feature class path (DE Feature Class, Output)
 
     # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
-    default_raw_field = "R_Tl_cecha_L"
-    default_std_field = "SR_Tl_cecha_L"
+    default_raw_field = "R_Tl_feature_L"
+    default_std_field = "SR_Tl_feature_L"
 
     output_raw_field = (arcpy.GetParameterAsText(5) or "").strip()  # 5 - Output partial criteria field name (String, Input)
     output_std_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output std. partial criteria field name (String, Input)

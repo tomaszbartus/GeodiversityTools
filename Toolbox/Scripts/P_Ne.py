@@ -29,8 +29,8 @@ try:
     output_fc_path = arcpy.GetParameterAsText(4)  # 4 - Output feature class path (DE Feature Class, Output)
 
     # Domyślne nazwy pól wynikowych. Używane, gdy użytkownik pozostawi pole puste.
-    default_raw_field = "R_Ne_cecha_P"
-    default_std_field = "SR_Ne_cecha_P"
+    default_raw_field = "R_Ne_feature_P"
+    default_std_field = "SR_Ne_feature_P"
 
     output_raw_field = (arcpy.GetParameterAsText(5) or "").strip()  # 5 - Output partial criteria field name (String, Input)
     output_std_field = (arcpy.GetParameterAsText(6) or "").strip()  # 6 - Output std. partial criteria field name (String, Input)
@@ -129,7 +129,8 @@ try:
         std_value_field="Ne_MIN_MAX",
         output_fc_path=output_fc_path,
         output_raw_field=output_raw_field,
-        output_std_field=output_std_field
+        output_std_field=output_std_field,
+        raw_field_type="LONG"
     )
 
     # ----------------------------------------------------------------------
