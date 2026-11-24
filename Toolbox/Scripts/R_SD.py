@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: R_SD (Standard Deviation for Raster)
-Calculates the Standard Deviation (SD) for a selected landscape feature (raster)
-within each polygon of an analytical grid and performs Min-Max standardization.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: R_SD (Standard Deviation for Raster)
+Version: v.1.0.0.
+Short description: Calculates the Standard Deviation (SD) for a selected landscape feature (raster) within each polygon of an analytical grid and performs Min-Max standardization.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

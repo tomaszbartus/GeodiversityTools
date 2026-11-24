@@ -1,11 +1,12 @@
 # coding=utf-8
 """
-Geodiversity Tool: R_M (Steinhaus Vertical Relief Index for Raster)
-Calculates the Steinhaus Vertical Relief Index (R_M) (Steinhaus, 1947) for a selected landscape feature (raster)
-within each polygon of an analytical grid and performs Min-Max standardization.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: R_M (Steinhaus Vertical Relief Index for Raster)
+Version: v.1.0.0.
+Short description: Calculates the Steinhaus Vertical Relief Index (R_M) (Steinhaus, 1947) for a selected landscape feature (raster) within each polygon of an analytical grid and performs Min-Max standardization.
 Exports profile lines (RM_Lines) and extreme points (RM_Points) to the target GDB.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

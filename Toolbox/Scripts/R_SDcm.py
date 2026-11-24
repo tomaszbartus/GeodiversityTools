@@ -1,11 +1,12 @@
 # coding=utf-8
 """
-Geodiversity Tool: R_SDcm (Modified Circular Standard Deviation for Raster)
-Calculates the Circular Standard Deviation (SDc) for a circular landscape feature (raster, e.g. aspect)
-excluding flat pixels (where slope <= threshold) within each polygon of an analytical grid.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: R_SDcm (Modified Circular Standard Deviation for Raster)
+Version: v.1.0.0.
+Short description: Calculates the Circular Standard Deviation (SDc) for a circular landscape feature (raster, e.g. aspect) excluding flat pixels (where slope <= threshold) within each polygon of an analytical grid.
 Performs Min-Max standardization.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

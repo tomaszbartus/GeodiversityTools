@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: AR (Aggregating Ratings)
-Aggregates multiple standardized partial criteria feature classes (with optional weights)
-into a final summary geodiversity index and performs Min-Max standardization.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: AR (Aggregating Ratings)
+Version: v.1.0.0.
+Short description: Aggregates multiple standardized partial criteria feature classes (with optional weights) into a final summary geodiversity index and performs Min-Max standardization.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

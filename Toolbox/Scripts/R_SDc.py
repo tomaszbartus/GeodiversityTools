@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: R_SDc (Circular Standard Deviation for Raster)
-Calculates the Circular Standard Deviation (SDc) for a selected circular landscape feature (raster)
-within each polygon of an analytical grid and performs Min-Max standardization.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: R_SDc (Circular Standard Deviation for Raster)
+Version: v.1.0.0.
+Short description: Calculates the Circular Standard Deviation (SDc) for a selected circular landscape feature (raster) within each polygon of an analytical grid and performs Min-Max standardization.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

@@ -1,11 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: R_SDm (Modified Standard Deviation for Raster)
-Calculates the Standard Deviation (SD) for a continuous landscape feature (raster)
-excluding flat pixels (where slope <= threshold) within each polygon of an analytical grid.
-Performs Min-Max standardization.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: R_SDm (Modified Standard Deviation for Raster)
+Version: v.1.0.0.
+Short description: Calculates the Standard Deviation (SD) for a continuous landscape feature (raster) excluding flat pixels (where slope <= threshold) within each polygon of an analytical grid. Performs Min-Max standardization.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy
