@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: A_SHDI (Shannon-Weaver Diversity Index)
-Calculates the Shannon–Weaver diversity index (SHDI) for a selected landscape feature
-in each polygon of an analytical grid and creates a new, standalone output feature class with user-defined fields.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: AA_SHDI (Shannon-Weaver Diversity Index)
+Version: v.1.0.0.
+Short description: Calculates the Shannon–Weaver diversity index (SHDI) for a selected landscape feature in each polygon of an analytical grid and creates a new, standalone output feature class with user-defined fields.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: P_Ne (Number of Geosites / Point Features)
-Calculates the number of geosites (point features) within each polygon of the analytical grid
-and creates a new, standalone output feature class with user-defined fields.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: P_Ne (Number of Geosites / Point Features)
+Version: v.1.0.0.
+Short description: Calculates the number of geosites (point features) within each polygon of the analytical grid and creates a new, standalone output feature class with user-defined fields.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

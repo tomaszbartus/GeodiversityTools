@@ -1,8 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: A_Nc (Number of Polygon Categories)
-Calculates the number of unique polygon categories per grid cell
-and creates a new, standalone output feature class with user-defined fields.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: A_Nc (Number of Polygon Categories)
+Version: v.1.0.0.
+Short description: Calculates the number of unique polygon categories per grid cell and creates a new, standalone output feature class with user-defined fields.
+Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
+2026-11-11
 """
 
 import arcpy

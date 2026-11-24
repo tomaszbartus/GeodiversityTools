@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: P_Nc (Number of Point Features Categories)
-Calculates the number of point feature categories of a selected landscape feature
-within each polygon of an analytical grid and creates a new, standalone output feature class.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: P_Nc (Number of Point Features Categories)
+Version: v.1.0.0.
+Short description: Calculates the number of point feature categories of a selected landscape feature within each polygon of an analytical grid and creates a new, standalone output feature class.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy

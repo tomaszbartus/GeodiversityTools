@@ -1,10 +1,11 @@
 # coding=utf-8
 """
-Geodiversity Tool: L_Tl (Total Line Length)
-Calculates the total length of line features of a selected landscape feature
-within each polygon of an analytical grid and creates a new, standalone output feature class with user-defined fields.
+Toolbox: GeodiversityTools (for ArcGIS Pro)
+Tool: L_Tl (Total Line Length)
+Version: v.1.0.0.
+Short description: Calculates the total length of line features of a selected landscape feature within each polygon of an analytical grid and creates a new, standalone output feature class with user-defined fields.
 Author: Tomasz Bartuś (bartus[at]agh.edu.pl)
-Refactored for GeodiversityTools Core Architecture
+2026-11-11
 """
 
 import arcpy
